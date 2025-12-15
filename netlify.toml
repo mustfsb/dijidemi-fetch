@@ -7,4 +7,4 @@
 
 [functions]
   node_bundler = "esbuild"
-  external_node_modules = ["@playwright/test", "playwright-core"] # Playwright binaries can be tricky
+  external_node_modules = ["@playwright/test", "playwright-core", "@sparticuz/chromium"] # Playwright binaries can be tricky

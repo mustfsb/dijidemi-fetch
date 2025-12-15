@@ -35,9 +35,14 @@ class PlaywrightService {
             // @sparticuz/chromium v123+ might export 'default'
             const chromium = (sparticuzChromium.default || sparticuzChromium) as any;
 
+            // Ensure we get a string path. Some versions require a location, others don't.
+            // If this still fails with "Received undefined", it means the library can't find its local binary.
+            // Externalizing in netlify.toml should fix the finding issue.
+            const executablePath = await chromium.executablePath();
+
             browser = await playwrightChromium.launch({
                 args: chromium.args,
-                executablePath: await chromium.executablePath(),
+                executablePath: executablePath,
                 headless: chromium.headless,
             });
 
