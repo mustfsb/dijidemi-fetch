@@ -21,14 +21,39 @@ class PlaywrightService {
 
     async getFreshCookies(): Promise<CookieData> {
         console.log('Starting Cloudflare bypass via Playwright...');
-        const browser = await chromium.launch({
-            headless: true, // Keep headless for Vercel compatibility
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-blink-features=AutomationControlled' // Stealth mode
-            ]
-        });
+
+        let browser;
+
+        // Check if running in Netlify/Lambda environment
+        const isLambda = !!process.env.AWS_LAMBDA_FUNCTION_VERSION || !!process.env.NETLIFY || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+
+        if (isLambda) {
+            console.log('Running in Lambda/Netlify environment. Using @sparticuz/chromium');
+            const sparticuzChromium = await import('@sparticuz/chromium');
+            const { chromium: playwrightChromium } = await import('playwright-core');
+
+            // @sparticuz/chromium v123+ might export 'default'
+            const chromium = sparticuzChromium.default || sparticuzChromium;
+
+            browser = await playwrightChromium.launch({
+                args: chromium.args,
+                defaultViewport: chromium.defaultViewport,
+                executablePath: await chromium.executablePath(),
+                headless: chromium.headless,
+            });
+
+        } else {
+            console.log('Running in local environment. Using standard playwright.');
+            const { chromium } = await import('playwright');
+            browser = await chromium.launch({
+                headless: true,
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-blink-features=AutomationControlled' // Stealth mode
+                ]
+            });
+        }
 
         try {
             const context = await browser.newContext({
@@ -108,7 +133,7 @@ class PlaywrightService {
             console.error('Error in PlaywrightService:', error);
             throw error;
         } finally {
-            await browser.close();
+            if (browser) await browser.close();
         }
     }
 }
