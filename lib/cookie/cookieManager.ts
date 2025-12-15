@@ -71,6 +71,7 @@ class CookieManager {
 
     private async saveToSupabase(cookies: CookieRecord) {
         try {
+            console.log('Saving cookies to Supabase...');
             // Upsert into auth_cookies with a fixed ID to ensure singleton-like behavior
             const { error } = await supabase
                 .from('auth_cookies')
@@ -81,13 +82,29 @@ class CookieManager {
                 });
 
             if (error) {
-                console.error('Error saving cookies to Supabase:', error);
+                console.error('Error saving cookies to Supabase:', JSON.stringify(error, null, 2));
+                // Add hint about RLS/Keys
+                if (error.code === '42501') {
+                    console.error('Hint: Check if SUPABASE_SERVICE_ROLE_KEY is set in Netlify Environment Variables and if RLS policies allow the write.');
+                }
+            } else {
+                console.log('Successfully saved to Supabase.');
             }
 
             // Also save to local file (simulating "local storage" persistence on server)
             try {
-                const filePath = path.join(process.cwd(), 'lib/cookie/cookies.json');
+                // In Lambda/Netlify, only /tmp is writable
+                const isLambda = !!process.env.AWS_LAMBDA_FUNCTION_VERSION || !!process.env.NETLIFY || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+                const dir = isLambda ? '/tmp' : path.join(process.cwd(), 'lib/cookie');
+
+                // Ensure dir exists locally
+                if (!isLambda && !fs.existsSync(dir)) {
+                    fs.mkdirSync(dir, { recursive: true });
+                }
+
+                const filePath = path.join(dir, 'cookies.json');
                 fs.writeFileSync(filePath, JSON.stringify(cookies, null, 2));
+                console.log(`Saved backup copy to ${filePath}`);
             } catch (localError) {
                 // Ignore local write errors in production/serverless if read-only
                 console.warn('Could not save to local cookies.json:', localError);
