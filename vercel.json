@@ -1,0 +1,14 @@
+{
+    "crons": [
+        {
+            "path": "/api/cron/refresh-cookies",
+            "schedule": "0 */2 * * *"
+        }
+    ],
+    "installCommand": "npm ci",
+    "buildCommand": "next build",
+    "framework": "nextjs",
+    "regions": [
+        "fra1"
+    ]
+}
