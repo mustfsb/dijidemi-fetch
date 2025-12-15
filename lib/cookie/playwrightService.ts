@@ -33,11 +33,10 @@ class PlaywrightService {
             const { chromium: playwrightChromium } = await import('playwright-core');
 
             // @sparticuz/chromium v123+ might export 'default'
-            const chromium = sparticuzChromium.default || sparticuzChromium;
+            const chromium = (sparticuzChromium.default || sparticuzChromium) as any;
 
             browser = await playwrightChromium.launch({
                 args: chromium.args,
-                defaultViewport: chromium.defaultViewport,
                 executablePath: await chromium.executablePath(),
                 headless: chromium.headless,
             });

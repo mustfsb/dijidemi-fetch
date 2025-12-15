@@ -48,6 +48,17 @@ const nextConfig = {
       },
     ];
   },
+
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      config.externals.push(
+        'playwright',
+        'playwright-core',
+        '@sparticuz/chromium'
+      );
+    }
+    return config;
+  },
 };
 
 export default nextConfig;

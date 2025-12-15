@@ -1,0 +1,14 @@
+{
+  "/_not-found": "app/_not-found.js",
+  "/api/auth/login/route": "app/api/auth/login/route.js",
+  "/api/cron/refresh-cookies/route": "app/api/cron/refresh-cookies/route.js",
+  "/api/proxy/route": "app/api/proxy/route.js",
+  "/api/student/save-answer/route": "app/api/student/save-answer/route.js",
+  "/api/book-tests/route": "app/api/book-tests/route.js",
+  "/api/student/assignments/route": "app/api/student/assignments/route.js",
+  "/hesap/page": "app/hesap/page.js",
+  "/favicon.ico/route": "app/favicon.ico/route.js",
+  "/page": "app/page.js",
+  "/api/video/route": "app/api/video/route.js",
+  "/api/status/route": "app/api/status/route.js"
+}
