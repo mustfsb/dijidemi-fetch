@@ -1,5 +1,6 @@
 {
-  "/api/status/route": "app/api/status/route.js",
   "/page": "app/page.js",
-  "/api/student/assignments/route": "app/api/student/assignments/route.js"
+  "/favicon.ico/route": "app/favicon.ico/route.js",
+  "/api/student/assignments/route": "app/api/student/assignments/route.js",
+  "/api/status/route": "app/api/status/route.js"
 }
