@@ -688,6 +688,11 @@ export default function Home() {
                     {toast.message}
                 </div>
             </main>
+
+            {/* Footer */}
+            <footer style={{ textAlign: 'center', padding: '1rem', color: 'var(--color-muted-foreground)', fontSize: '0.875rem' }}>
+                coded by <a href="https://instagram.com/127.0.0.28" target="_blank" rel="noopener noreferrer" style={{ color: 'red', textDecoration: 'none', fontWeight: 'bold' }}>mustafa</a>
+            </footer>
         </div>
     );
 }
