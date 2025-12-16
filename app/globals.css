@@ -136,12 +136,13 @@ body::after {
 
 /* Header - Mobile First */
 .header {
-  position: sticky;
-  top: 0.5rem;
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 50;
-  margin-left: auto;
-  margin-right: auto;
-  width: calc(100% - 1rem);
+  margin: 0;
+  width: 100%;
   max-width: 80rem;
   background: color-mix(in srgb, var(--color-card) 95%, transparent);
   backdrop-filter: blur(20px);
@@ -153,6 +154,26 @@ body::after {
   align-items: center;
   justify-content: space-between;
   box-shadow: 0 4px 12px rgb(0 0 0 / 0.05);
+  /* Smooth transition for all states */
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+    max-width 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+    top 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+    padding 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+    border-radius 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+    background 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.header.header-scrolled {
+  top: 1rem !important;
+  width: 80% !important;
+  max-width: 60rem !important;
+  padding: 0.5rem 1.5rem;
+  background: color-mix(in srgb, var(--color-card) 85%, transparent);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.1);
+  border-color: var(--color-accent);
+  border-radius: 999px;
 }
 
 @media (min-width: 640px) {
@@ -191,7 +212,6 @@ body::after {
 
 /* Navigation */
 .nav {
-  display: flex;
   align-items: center;
   gap: 0.5rem;
 }
@@ -224,7 +244,7 @@ body::after {
 /* Main content */
 .main {
   flex: 1;
-  padding: 2rem 0;
+  padding: 6rem 0 2rem 0;
   width: 90%;
   max-width: 80rem;
   margin: 0 auto;
@@ -619,6 +639,11 @@ body::after {
   background: transparent;
   border: none;
   cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.mobile-menu-btn:hover {
+  background: var(--color-secondary);
 }
 
 @media (max-width: 1023px) {
@@ -824,4 +849,71 @@ body::after {
 .test-list-scroll {
   max-height: 65vh;
   overflow-y: auto;
+}
+
+/* ========================================
+   SETTINGS DIALOG STYLES
+   ======================================== */
+
+/* Dialog content styling */
+[data-slot="dialog-content"] {
+  background: var(--color-card) !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+/* Settings dialog specific styles */
+.settings-dialog-content {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  color: var(--color-foreground);
+}
+
+/* Fix dialog overlay and close button */
+[data-slot="dialog-close"] {
+  color: var(--color-muted-foreground);
+}
+
+[data-slot="dialog-close"]:hover {
+  color: var(--color-foreground);
+  background: var(--color-secondary);
+}
+
+/* Switch component color fixes */
+[data-state="checked"][data-slot="switch"] {
+  background: var(--color-accent) !important;
+}
+
+[data-state="unchecked"][data-slot="switch"] {
+  background: var(--color-input) !important;
+}
+
+/* Switch thumb */
+[data-slot="switch"] span {
+  background: var(--color-background) !important;
+}
+
+/* Label and text colors in dialog */
+[data-slot="dialog-content"] label,
+[data-slot="dialog-content"] .text-sm {
+  color: var(--color-foreground);
+}
+
+[data-slot="dialog-content"] .text-muted-foreground,
+[data-slot="dialog-content"] p.text-sm {
+  color: var(--color-muted-foreground) !important;
+}
+
+/* Separator in dialog */
+[data-slot="dialog-content"] [data-slot="separator"] {
+  background: var(--color-border);
+}
+
+/* Destructive button in settings */
+[data-slot="dialog-content"] button[data-variant="destructive"] {
+  background: var(--color-destructive);
+  color: var(--color-destructive-foreground);
+}
+
+[data-slot="dialog-content"] button[data-variant="destructive"]:hover {
+  opacity: 0.9;
 }

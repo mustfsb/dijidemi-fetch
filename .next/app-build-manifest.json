@@ -1,34 +1,15 @@
 {
   "pages": {
-    "/_not-found": [
-      "static/chunks/webpack-371813a8ade5982f.js",
-      "static/chunks/fd9d1056-df240762e109cc57.js",
-      "static/chunks/69-54304e980f5a7e74.js",
-      "static/chunks/main-app-b5bf4d709d803964.js",
-      "static/chunks/app/_not-found-ae2402825f839415.js"
-    ],
     "/layout": [
-      "static/chunks/webpack-371813a8ade5982f.js",
-      "static/chunks/fd9d1056-df240762e109cc57.js",
-      "static/chunks/69-54304e980f5a7e74.js",
-      "static/chunks/main-app-b5bf4d709d803964.js",
-      "static/css/800d25396f641716.css",
-      "static/chunks/app/layout-6c0469ac35f971e0.js"
-    ],
-    "/hesap/page": [
-      "static/chunks/webpack-371813a8ade5982f.js",
-      "static/chunks/fd9d1056-df240762e109cc57.js",
-      "static/chunks/69-54304e980f5a7e74.js",
-      "static/chunks/main-app-b5bf4d709d803964.js",
-      "static/chunks/app/hesap/page-4c930a7fc8adeba5.js"
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/css/app/layout.css",
+      "static/chunks/app/layout.js"
     ],
     "/page": [
-      "static/chunks/webpack-371813a8ade5982f.js",
-      "static/chunks/fd9d1056-df240762e109cc57.js",
-      "static/chunks/69-54304e980f5a7e74.js",
-      "static/chunks/main-app-b5bf4d709d803964.js",
-      "static/chunks/3-9115d0a641ce3723.js",
-      "static/chunks/app/page-097fcced3ede69d1.js"
+      "static/chunks/webpack.js",
+      "static/chunks/main-app.js",
+      "static/chunks/app/page.js"
     ]
   }
 }

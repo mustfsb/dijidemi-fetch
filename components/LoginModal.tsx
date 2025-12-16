@@ -94,7 +94,7 @@ export default function LoginModal({ onClose, onLoginSuccess }: LoginModalProps)
 
                     <Button
                         type="submit"
-                        className="w-full h-11 text-base font-semibold bg-red-900 text-white hover:text-red-900"
+                        className="w-full h-11 text-base font-semibold bg-[var(--color-accent)] text-white hover:opacity-90 transition-opacity"
                         disabled={loading}
                     >
                         {loading ? (

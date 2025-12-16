@@ -92,6 +92,18 @@ export default function Home() {
     const [showSettings, setShowSettings] = useState<boolean>(false);
     const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
+    // Scroll state for Navbar animation
+    const [scrolled, setScrolled] = useState(false);
+
+    // Scroll Listener
+    useEffect(() => {
+        const handleScroll = () => {
+            setScrolled(window.scrollY > 50);
+        };
+        window.addEventListener('scroll', handleScroll);
+        return () => window.removeEventListener('scroll', handleScroll);
+    }, []);
+
     // Hydration fix
     useEffect(() => {
         setMounted(true);
@@ -109,7 +121,7 @@ export default function Home() {
     // Close mobile menu on desktop resize
     useEffect(() => {
         const handleResize = () => {
-            if (window.innerWidth > 1024 && mobileMenuOpen) {
+            if (window.innerWidth >= 1024 && mobileMenuOpen) {
                 setMobileMenuOpen(false);
             }
         };
@@ -309,7 +321,7 @@ export default function Home() {
             )}
 
             {/* Header */}
-            <header className="header">
+            <header className={`header ${scrolled ? 'header-scrolled' : ''}`}>
                 <div
                     className="logo"
                     onClick={() => {
@@ -322,7 +334,7 @@ export default function Home() {
                     DIJI-FETCH
                 </div>
 
-                {/* Desktop Nav */}
+                {/* Desktop Nav - hidden on mobile, visible on lg+ (1024px) */}
                 <nav className="nav hidden lg:flex">
                     {isLoggedIn ? (
                         <>
@@ -423,17 +435,17 @@ export default function Home() {
                         <div className="flex items-center justify-between">
                             <div className="space-y-0.5">
                                 <Label>Tema</Label>
-                                <p className="text-sm text-muted-foreground">
+                                <p className="text-sm" style={{ color: 'var(--color-muted-foreground)' }}>
                                     {theme === 'dark' ? 'Koyu mod aktif' : 'Açık mod aktif'}
                                 </p>
                             </div>
                             <div className="flex items-center gap-2">
-                                <Sun className="w-4 h-4 text-muted-foreground" />
+                                <Sun className="w-4 h-4" style={{ color: 'var(--color-muted-foreground)' }} />
                                 <Switch
                                     checked={theme === 'dark'}
                                     onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
                                 />
-                                <Moon className="w-4 h-4 text-muted-foreground" />
+                                <Moon className="w-4 h-4" style={{ color: 'var(--color-muted-foreground)' }} />
                             </div>
                         </div>
 
