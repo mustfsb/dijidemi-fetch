@@ -271,10 +271,35 @@ export default function Home() {
         finally { setLoadingTests(false); }
     };
 
-    const handleAssignmentClick = (asgn: Assignment): void => {
-        setSelectedTest({ id: asgn.id, name: asgn.title });
-        loadTest(asgn.id, { odevId: asgn.id });
-        setActiveTab('test-view');
+    const handleAssignmentClick = async (asgn: Assignment): Promise<void> => {
+        setLoading(true);
+        setLoadingText('Test ID alınıyor...');
+        setError(null);
+
+        try {
+            // First, fetch the real TestId from the assignment page
+            const res = await fetch('/api/student/assignment-test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ odevId: asgn.id })
+            });
+
+            const data = await res.json();
+
+            if (!data.success || !data.testId) {
+                throw new Error(data.error || 'Test ID alınamadı');
+            }
+
+            setSelectedTest({ id: data.testId, name: asgn.title });
+            loadTest(data.testId, { odevId: asgn.id });
+            setActiveTab('test-view');
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'Test yüklenemedi');
+            showToast('Test yüklenemedi', 'error');
+        } finally {
+            setLoading(false);
+            setLoadingText('Yükleniyor...');
+        }
     };
 
     const saveAnswers = async (): Promise<void> => {
