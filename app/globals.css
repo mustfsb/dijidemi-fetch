@@ -917,3 +917,44 @@ body::after {
 [data-slot="dialog-content"] button[data-variant="destructive"]:hover {
   opacity: 0.9;
 }
+
+/* Visited test item - last visited test shows red highlight */
+.test-list-item.visited .test-number {
+  background: var(--color-accent);
+  color: white;
+}
+
+/* Test Navigation Buttons (Below Answer Key) */
+.test-nav-buttons {
+  display: flex;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.test-nav-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  background: var(--color-secondary);
+  border: 1px solid var(--color-border);
+  color: var(--color-foreground);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.test-nav-btn:hover:not(:disabled) {
+  background: var(--color-muted);
+  border-color: var(--color-accent);
+}
+
+.test-nav-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

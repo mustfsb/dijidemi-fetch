@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback, ChangeEvent } from 'react';
+import { useState, useEffect, useMemo, useCallback, ChangeEvent, useRef } from 'react';
 import { useTheme } from 'next-themes';
 import booksData from './data/books.json';
 import LoginModal from '@/components/LoginModal';
@@ -15,7 +15,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { Moon, Sun, ArrowLeft, Settings, LogIn, BookOpen, ClipboardList, ChevronRight } from 'lucide-react';
+import { Moon, Sun, ArrowLeft, Settings, LogIn, BookOpen, ClipboardList, ChevronRight, ChevronLeft } from 'lucide-react';
 import type {
     Book,
     BooksBySubject,
@@ -79,6 +79,8 @@ export default function Home() {
     const [bookTests, setBookTests] = useState<Test[]>([]);
     const [loadingTests, setLoadingTests] = useState<boolean>(false);
     const [selectedTest, setSelectedTest] = useState<Test | null>(null);
+    const [lastVisitedTestIndex, setLastVisitedTestIndex] = useState<number | null>(null);
+    const testListRef = useRef<HTMLDivElement>(null);
 
     // Context
     const [assignmentContext, setAssignmentContext] = useState<AssignmentContext | null>(null);
@@ -516,12 +518,14 @@ export default function Home() {
                                 <div className="loader">Yükleniyor...</div>
                             ) : (
                                 <div className="test-list-wrapper">
-                                    <div className="test-list-scroll">
+                                    <div className="test-list-scroll" ref={testListRef}>
                                         {bookTests.map((test, index) => (
                                             <div
                                                 key={test.id}
-                                                className="test-list-item group"
+                                                id={`test-item-${index}`}
+                                                className={`test-list-item group ${lastVisitedTestIndex === index ? 'visited' : ''}`}
                                                 onClick={() => {
+                                                    setLastVisitedTestIndex(index);
                                                     setSelectedTest(test);
                                                     loadTest(test.id);
                                                 }}
@@ -588,6 +592,15 @@ export default function Home() {
                                     setSelectedTest(null);
                                     setVideos([]);
                                     setActiveTab(isLoggedIn && assignmentContext ? 'assignments' : 'books');
+                                    // Scroll to last visited test after render
+                                    if (lastVisitedTestIndex !== null) {
+                                        setTimeout(() => {
+                                            const element = document.getElementById(`test-item-${lastVisitedTestIndex}`);
+                                            if (element && testListRef.current) {
+                                                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                            }
+                                        }, 100);
+                                    }
                                 }}
                             >
                                 <ArrowLeft className="w-4 h-4" />
@@ -633,6 +646,45 @@ export default function Home() {
                                                 )}
                                             </div>
                                         ))}
+                                    </div>
+                                    {/* Test Navigation Buttons */}
+                                    <div className="test-nav-buttons">
+                                        <button
+                                            className="test-nav-btn"
+                                            disabled={!bookTests.length || lastVisitedTestIndex === null || lastVisitedTestIndex <= 0}
+                                            onClick={() => {
+                                                if (lastVisitedTestIndex !== null && lastVisitedTestIndex > 0) {
+                                                    const prevIndex = lastVisitedTestIndex - 1;
+                                                    const prevTest = bookTests[prevIndex];
+                                                    if (prevTest) {
+                                                        setLastVisitedTestIndex(prevIndex);
+                                                        setSelectedTest(prevTest);
+                                                        loadTest(prevTest.id);
+                                                    }
+                                                }
+                                            }}
+                                        >
+                                            <ChevronLeft className="w-4 h-4" />
+                                            Önceki
+                                        </button>
+                                        <button
+                                            className="test-nav-btn"
+                                            disabled={!bookTests.length || lastVisitedTestIndex === null || lastVisitedTestIndex >= bookTests.length - 1}
+                                            onClick={() => {
+                                                if (lastVisitedTestIndex !== null && lastVisitedTestIndex < bookTests.length - 1) {
+                                                    const nextIndex = lastVisitedTestIndex + 1;
+                                                    const nextTest = bookTests[nextIndex];
+                                                    if (nextTest) {
+                                                        setLastVisitedTestIndex(nextIndex);
+                                                        setSelectedTest(nextTest);
+                                                        loadTest(nextTest.id);
+                                                    }
+                                                }
+                                            }}
+                                        >
+                                            Sonraki
+                                            <ChevronRight className="w-4 h-4" />
+                                        </button>
                                     </div>
                                 </div>
                             )}
@@ -691,7 +743,7 @@ export default function Home() {
 
             {/* Footer */}
             <footer style={{ textAlign: 'center', padding: '1rem', color: 'var(--color-muted-foreground)', fontSize: '0.875rem' }}>
-                coded by <a href="https://instagram.com/127.0.0.28" target="_blank" rel="noopener noreferrer" style={{ color: 'red', textDecoration: 'none', fontWeight: 'bold' }}>mustafa</a>
+                dev by <a href="https://instagram.com/127.0.0.28" target="_blank" rel="noopener noreferrer" style={{ color: 'red', textDecoration: 'none', fontWeight: 'bold' }}>mustafa</a>
             </footer>
         </div>
     );
