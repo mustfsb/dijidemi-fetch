@@ -13,7 +13,7 @@ export async function analyzeProgramPdf(filePath: string) {
     const fileBuffer = fs.readFileSync(filePath);
     const base64Data = fileBuffer.toString('base64');
 
-    console.log('🤖 Gemini AI (1.5-flash) çağrılıyor, lütfen bekleyin...');
+    console.log('🤖 Gemini AI (3-flash) çağrılıyor, lütfen bekleyin...');
     const model = genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' });
 
     const prompt = `
