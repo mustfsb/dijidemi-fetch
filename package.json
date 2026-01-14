@@ -5,10 +5,10 @@
   "scripts": {
     "dev": "next dev",
     "analyze": "tsx scripts/update-program.ts",
-    "build": "npm run analyze && next build",
+    "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "vercel-build": "npm run analyze && next build"
+    "vercel-build": "next build"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
@@ -43,7 +43,7 @@
   },
   "devDependencies": {
     "@netlify/functions": "^5.1.1",
-    "@netlify/plugin-nextjs": "^5.15.2",
+    "@netlify/plugin-nextjs": "^5.15.4",
     "@types/node": "^20.11.17",
     "@types/react": "^18.2.55",
     "@types/react-dom": "^18.2.19",
