@@ -2,13 +2,9 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { createClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
-import * as fs from 'fs'
-import * as path from 'path'
-
-const logFile = path.join(process.cwd(), 'login-debug.log');
 function log(msg: string) {
   const timestamp = new Date().toISOString();
-  fs.appendFileSync(logFile, `[${timestamp}] ${msg}\n`);
+  console.log(`[${timestamp}] ${msg}`);
 }
 
 export async function POST(request: Request) {
