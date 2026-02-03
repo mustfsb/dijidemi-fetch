@@ -231,7 +231,7 @@ export default function Home() {
                                     <BookOpen className="w-4 h-4 mr-2 inline" />
                                     Kitaplar
                                 </button>
-                                    <Link href="/playground" className="nav-item group">
+                                    <Link href="/playground" className="nav-item group flex">
                                         <Sparkles className="w-4 h-4 text-red-500 group-hover:animate-pulse" />
                                         <span>AI Öğretmen</span>
                                     </Link>
