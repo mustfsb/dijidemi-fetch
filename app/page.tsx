@@ -288,7 +288,7 @@ export default function Home() {
                 </button>
                 <Link href="/playground" className="nav-btn group">
                   <Sparkles className="w-4 h-4 text-red-500 group-hover:animate-pulse" />
-                  <span>AI Öğretmen</span>
+                  <span className="ml-1">AI Öğretmen</span>
                 </Link>
                 <button
                   className="nav-btn"
