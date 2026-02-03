@@ -38,53 +38,136 @@ export default function PrivateTestPage() {
   const [testData, setTestData] = useState<TestData | null>(null);
   const [videoLinks, setVideoLinks] = useState<Record<number, string | null>>({});
   const [activeTab, setActiveTab] = useState<'answers' | 'videos'>('answers');
+  const [errorStatus, setErrorStatus] = useState<string | null>(null);
 
   useEffect(() => {
     const initFetch = async () => {
-      try {
-        // 1. Fetch Test Details (Answers)
-        const testRes = await fetch(`/api/homework/fetch-test?testId=${testId}`);
-        const testJson = await testRes.json();
-        
-        if (testJson.success) {
-          const questions = testJson.data.Sorular || [];
-          setTestData({
-            success: true,
-            title: testJson.title,
-            questions: questions
-          });
+      console.log(`[PrivateTest] Starting robust fetch for Test ID: ${testId}`);
+      
+      const programIds = ['14308', '14309', '14310', '0', '1'];
+      const testTurs = ['1', '2'];
+      
+      let foundData = false;
 
-          // 2. Fetch Video Links for each question
-          // Note: In a real app, this would be optimized, but here we process them for the ID 1062219
-          const videoPromises = questions.map(async (q: Question) => {
-            const sNo = q.SoruNo || q.SiraNo;
-            const vRes = await fetch(`/api/video?testId=${testId}&soruId=${sNo}`);
-            const vJson = await vRes.json();
-            return { soruNo: sNo, videoUrl: vJson.success ? vJson.videoUrl : null };
-          });
+      // Strategy 1: Try various programId/testTur combinations with GetTestById
+      for (const pId of programIds) {
+        if (foundData) break;
+        for (const tTur of testTurs) {
+          try {
+            console.log(`[PrivateTest] Trying Strategy 1: programId=${pId}, testTur=${tTur}`);
+            const res = await fetch(`/api/homework/fetch-test?testId=${testId}&programId=${pId}&testTur=${tTur}`);
+            const json = await res.json();
 
-          const results = await Promise.all(videoPromises);
-          const linksMap: Record<number, string | null> = {};
-          results.forEach(r => {
-            linksMap[r.soruNo] = r.videoUrl;
-          });
-          setVideoLinks(linksMap);
+            if (json.success && json.data && (json.data.Sorular || json.data.Test)) {
+              console.log(`[PrivateTest] SUCCESS with Strategy 1: programId=${pId}, testTur=${tTur}`);
+              const questions = json.data.Sorular || [];
+              setTestData({
+                success: true,
+                title: json.title,
+                questions: questions
+              });
+              foundData = true;
+              break;
+            }
+          } catch (e) {
+            console.warn(`[PrivateTest] Strategy 1 failed for pId ${pId}, tTur ${tTur}:`, e);
+          }
         }
-      } catch (err) {
-        console.error("Fetch error:", err);
-      } finally {
-        setLoading(false);
       }
+
+      // Strategy 2: If Strategy 1 fails, try getting answers via student/test-answers API
+      if (!foundData) {
+        console.log(`[PrivateTest] Strategy 1 failed. Trying Strategy 2: test-answers API`);
+        try {
+          const res = await fetch(`/api/student/test-answers?testId=${testId}`);
+          const json = await res.json();
+
+          if (json.success && json.tCevaplar) {
+            console.log(`[PrivateTest] SUCCESS with Strategy 2 (Answers Only)`);
+            const answers = json.tCevaplar.split('');
+            const questions = answers.map((ans: string, index: number) => ({
+              SoruNo: index + 1,
+              SiraNo: index + 1,
+              DogruCevap: ans
+            }));
+
+            setTestData({
+              success: true,
+              title: `Test #${testId} (Cevap Anahtarı Modu)`,
+              questions: questions
+            });
+            foundData = true;
+          }
+        } catch (e) {
+          console.error(`[PrivateTest] Strategy 2 also failed:`, e);
+        }
+      }
+
+      if (foundData && testData?.questions || foundData) {
+          // Fetch videos (we can't easily wait for all if we want to show something fast, but let's do it for robustness)
+          // We'll refetch testData questions from the local state variable just set or from the json
+          // Because setTestData is async, we use the local reference.
+      } else {
+        setErrorStatus("Test verilerine erişilemedi. Çerezler geçersiz olabilir veya Test ID hatalı.");
+      }
+      
+      setLoading(false);
     };
 
     initFetch();
   }, [testId]);
 
+  // Separate effect for video fetching once questions are loaded
+  useEffect(() => {
+    if (!testData?.questions) return;
+
+    const fetchVideos = async () => {
+      console.log(`[PrivateTest] Fetching videos for ${testData.questions.length} questions...`);
+      const linksMap: Record<number, string | null> = {};
+      
+      // Fetch in chunks to avoid overwhelming the proxy
+      const questions = testData.questions;
+      for (const q of questions) {
+        const sNo = q.SoruNo || q.SiraNo;
+        try {
+          const vRes = await fetch(`/api/video?testId=${testId}&soruId=${sNo}`);
+          const vJson = await vRes.json();
+          linksMap[sNo] = vJson.success ? vJson.videoUrl : null;
+        } catch (e) {
+          linksMap[sNo] = null;
+        }
+        // Update incrementally
+        setVideoLinks(prev => ({ ...prev, ...linksMap }));
+      }
+    };
+
+    fetchVideos();
+  }, [testData?.questions, testId]);
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-[#050505] text-white">
         <Loader2 className="w-12 h-12 animate-spin text-blue-500 mb-4" />
-        <p className="text-zinc-400 font-medium tracking-wide">Test Verileri Hazırlanıyor...</p>
+        <p className="text-zinc-400 font-medium tracking-wide">Dijidemi Sistemine Erişiliyor...</p>
+        <p className="text-zinc-600 text-xs mt-2 italic px-8 text-center">Çoklu doğrulama stratejileri deneniyor (Program ID, Test Türü)...</p>
+      </div>
+    );
+  }
+
+  if (errorStatus && !testData) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-[#050505] text-white p-6">
+        <div className="p-8 border border-red-500/20 bg-red-500/5 rounded-3xl max-w-md text-center">
+            <Video className="w-12 h-12 text-red-500 mx-auto mb-4 opacity-50" />
+            <h2 className="text-xl font-bold mb-2">Erişim Hatası</h2>
+            <p className="text-zinc-400 text-sm mb-6">{errorStatus}</p>
+            <button 
+                onClick={() => window.location.reload()}
+                className="px-6 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-sm transition-all"
+            >
+                Tekrar Dene
+            </button>
+        </div>
       </div>
     );
   }
@@ -95,12 +178,16 @@ export default function PrivateTestPage() {
         {/* Header */}
         <div className="mb-12 space-y-4">
           <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-semibold uppercase tracking-wider">
-            <span>Özel Test Erişimi</span>
+            <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3" /> Doğrulandı</span>
           </div>
           <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-white to-zinc-500 bg-clip-text text-transparent italic">
             {testData?.title || `Test #${testId}`}
           </h1>
-          <p className="text-zinc-500 text-lg">Test ID: {testId} • Toplam {testData?.questions.length} Soru</p>
+          <div className="flex items-center space-x-4 text-zinc-500">
+            <p className="text-sm">ID: <span className="text-zinc-300 font-mono">{testId}</span></p>
+            <span className="w-1 h-1 rounded-full bg-zinc-700" />
+            <p className="text-sm">{testData?.questions.length} Soru Bulundu</p>
+          </div>
         </div>
 
         {/* Navigation Tabs */}
@@ -130,15 +217,15 @@ export default function PrivateTestPage() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4"
+                className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4"
               >
                 {testData?.questions.map((q) => (
-                  <div key={q.SoruNo} className="group p-4 bg-zinc-900 border border-zinc-800 rounded-2xl hover:border-zinc-700 transition-all">
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs font-mono text-zinc-500">Soru {q.SoruNo}</span>
-                      <CheckCircle2 className="w-4 h-4 text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <div key={q.SoruNo} className="group p-5 bg-zinc-900 border border-zinc-800 rounded-3xl hover:border-blue-500/30 hover:bg-zinc-800/40 transition-all duration-300">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-600 group-hover:text-blue-500/50 transition-colors">Soru {q.SoruNo}</span>
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/20 group-hover:bg-emerald-500 transition-colors" />
                     </div>
-                    <div className="mt-2 text-2xl font-bold text-white group-hover:text-blue-400 transition-colors">
+                    <div className="text-3xl font-black text-white group-hover:scale-110 transition-transform origin-left">
                       {q.DogruCevap}
                     </div>
                   </div>
@@ -153,14 +240,14 @@ export default function PrivateTestPage() {
                 className="space-y-3"
               >
                 {testData?.questions.map((q) => (
-                  <div key={q.SoruNo} className="flex items-center justify-between p-4 bg-zinc-900 border border-zinc-800 rounded-2xl hover:bg-zinc-800/50 transition-all group">
+                  <div key={q.SoruNo} className="group flex items-center justify-between p-4 bg-zinc-900/50 border border-zinc-800/50 rounded-2xl hover:bg-zinc-800/80 hover:border-zinc-700 transition-all duration-300">
                     <div className="flex items-center space-x-4">
-                      <div className="w-10 h-10 flex items-center justify-center rounded-xl bg-zinc-800 text-zinc-400 font-mono text-sm border border-zinc-700 group-hover:bg-blue-500/10 group-hover:text-blue-400 group-hover:border-blue-500/20 transition-all">
+                      <div className="w-12 h-12 flex items-center justify-center rounded-2xl bg-zinc-900 text-zinc-400 font-black text-lg border border-zinc-800 group-hover:border-blue-500/30 group-hover:text-blue-400 transition-all">
                         {q.SoruNo}
                       </div>
                       <div>
-                        <h4 className="text-sm font-semibold text-zinc-200">Soru Çözümü</h4>
-                        <p className="text-xs text-zinc-500">Dijidemi Eğitim Platformu</p>
+                        <h4 className="text-sm font-bold text-zinc-200 group-hover:text-white transition-colors">Soru Çözümü</h4>
+                        <p className="text-[11px] text-zinc-500 font-medium">Dijidemi Video Servisi</p>
                       </div>
                     </div>
                     
@@ -169,13 +256,21 @@ export default function PrivateTestPage() {
                         href={videoLinks[q.SoruNo]!} 
                         target="_blank" 
                         rel="noopener noreferrer"
-                        className="flex items-center space-x-2 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-xl text-sm font-medium transition-all shadow-lg shadow-blue-500/10"
+                        className="flex items-center space-x-2 px-5 py-2.5 bg-white text-black hover:bg-blue-500 hover:text-white rounded-xl text-xs font-bold transition-all transform active:scale-95 shadow-xl shadow-black/20"
                       >
                         <PlayCircle className="w-4 h-4" />
-                        <span>İzle</span>
+                        <span>VIDEOYU AÇ</span>
                       </a>
+                    ) : videoLinks[q.SoruNo] === undefined ? (
+                      <div className="flex items-center space-x-2 px-5 py-2.5 bg-zinc-800/50 text-zinc-500 rounded-xl text-xs font-bold animate-pulse">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <span>ARANIYOR</span>
+                      </div>
                     ) : (
-                      <span className="text-xs text-zinc-600 italic">Video Bulunamadı</span>
+                      <div className="flex items-center space-x-2 px-5 py-2.5 bg-zinc-950 text-zinc-700 rounded-xl text-xs font-bold border border-zinc-900">
+                        <Video className="w-4 h-4 opacity-20" />
+                        <span>BULUNAMADI</span>
+                      </div>
                     )}
                   </div>
                 ))}
@@ -184,13 +279,15 @@ export default function PrivateTestPage() {
           </AnimatePresence>
         </div>
 
-        {/* Footer Credit */}
-        <div className="mt-16 pt-8 border-t border-zinc-900 flex justify-between items-center opacity-40">
-          <p className="text-xs font-mono">ID: {testId}</p>
-          <div className="flex space-x-4">
-            <Video className="w-4 h-4 outline-none" />
-            <FileText className="w-4 h-4 outline-none" />
-          </div>
+        {/* Info Box */}
+        <div className="mt-12 p-6 bg-blue-500/5 border border-blue-500/10 rounded-3xl">
+            <div className="flex gap-4">
+                <div className="p-3 bg-blue-500/10 rounded-2xl h-fit">
+                    <FileText className="w-5 h-5 text-blue-400" />
+                </div>
+                <div>
+                </div>
+            </div>
         </div>
       </div>
     </div>
