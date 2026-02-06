@@ -96,7 +96,7 @@ export default function PrivateTestPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-[#020202] text-white">
         <Loader2 className="w-12 h-12 animate-spin text-blue-600 mb-6" />
-        <p className="text-zinc-500 font-mono text-[10px] tracking-[0.3em] uppercase">Initializing Engine</p>
+        <p className="text-zinc-500 font-mono text-[10px] tracking-[0.3em] uppercase">yukleniyor.</p>
       </div>
     );
   }
@@ -109,7 +109,7 @@ export default function PrivateTestPage() {
         <header className="mb-16 space-y-6">
           <div className="flex items-center space-x-3">
              <div className="w-10 h-[1px] bg-blue-600" />
-             <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-500">Private DIJI-fetcher</span>
+             <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-500">private DIJI-fetcher</span>
           </div>
           <h1 className="text-5xl md:text-7xl font-black tracking-normal text-white leading-none italic uppercase">
             GARDAŞ ALLAH ZİHİN AÇIKLIĞI VERSİN BOKUNU ÇIKARMADAN İZLE
