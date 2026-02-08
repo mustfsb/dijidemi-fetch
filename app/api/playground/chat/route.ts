@@ -1,0 +1,196 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import * as cheerio from 'cheerio';
+import cookieManager from '@/lib/cookie/cookieManager';
+
+// List of available API keys for rotation
+const API_KEYS = [
+    process.env.GEMINI_FIRST_API_KEY,
+    process.env.GEMINI_SECOND_API_KEY,
+    process.env.GEMINI_THIRD_API_KEY,
+    process.env.GEMINI_FOURTH_API_KEY,
+    process.env.GEMINI_API_KEY
+].filter(Boolean) as string[];
+
+const getModel = (apiKey: string) => {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    return genAI.getGenerativeModel({ 
+        model: 'gemini-3-flash-preview',
+        generationConfig: {
+            maxOutputTokens: 2048,
+            temperature: 0.7,
+        },
+        safetySettings: [
+            { category: 'HARM_CATEGORY_HARASSMENT' as any, threshold: 'BLOCK_NONE' as any },
+            { category: 'HARM_CATEGORY_HATE_SPEECH' as any, threshold: 'BLOCK_NONE' as any },
+            { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT' as any, threshold: 'BLOCK_NONE' as any },
+            { category: 'HARM_CATEGORY_DANGEROUS_CONTENT' as any, threshold: 'BLOCK_NONE' as any },
+        ]
+    });
+};
+
+async function fetchImagePart(url: string) {
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error("Image fetch failed");
+        const buffer = await response.arrayBuffer();
+        return {
+            inlineData: {
+                data: Buffer.from(buffer).toString("base64"),
+                mimeType: "image/png",
+            },
+        };
+    } catch (e) {
+        console.error("Image fetch error:", url, e);
+        return null;
+    }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const { message, history, context } = await request.json();
+
+    if (API_KEYS.length === 0) {
+         return NextResponse.json({ success: false, error: "API keys are missing." }, { status: 500 });
+    }
+
+    const authHeaders = await cookieManager.getHeaders();
+    const fetchCookies = authHeaders['Cookie'] || '';
+
+    // 1. Resolve Images using logic from solve/route.ts
+    let contextPrompt = "BAĞLAM - Seçili Sorular:\n";
+    let imageParts: any[] = [];
+    let firstResolvedImageUrl = null;
+    let resolvedImageUrls: string[] = [];
+    
+    if (context && context.length > 0) {
+      for (const q of context) {
+        contextPrompt += `- [${q.id}] ${q.title}\n`;
+        
+        let resolvedImageUrl = q.imageUrl;
+        
+        // If image URL is missing and we have IDs, use the "Ask AI" logic
+        if (!resolvedImageUrl && q.bookId && q.id.includes('-q')) {
+             try {
+                const parts = q.id.split('-q');
+                const testId = parts[0];
+                const questionNumber = parts[1];
+                
+                const targetUrl = `https://www.dijidemi.com/Ogrenci/KitapTestDetay?kitapId=${q.bookId}&___layout`;
+                const pageResponse = await fetch(targetUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                        'Cookie': fetchCookies,
+                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'text/html, */*; q=0.01',
+                    },
+                    body: `id=${testId}`
+                });
+
+                if (pageResponse.ok) {
+                    const html = await pageResponse.text();
+                    const $ = cheerio.load(html);
+                    const questionEl = $(`.rowSoru[data-soruno="${questionNumber}"]`);
+                    resolvedImageUrl = questionEl.attr('data-soruimg');
+                    
+                    if (resolvedImageUrl && resolvedImageUrl.startsWith('/')) {
+                        resolvedImageUrl = `https://yayin.etapyayinlari.com${resolvedImageUrl}`;
+                    }
+                }
+             } catch (e) {
+                console.error("Image scraping failed for", q.id, e);
+             }
+        }
+
+        if (resolvedImageUrl) {
+            if (!firstResolvedImageUrl) firstResolvedImageUrl = resolvedImageUrl;
+            resolvedImageUrls.push(resolvedImageUrl);
+            const part = await fetchImagePart(resolvedImageUrl);
+            if (part) imageParts.push(part);
+        }
+      }
+    }
+
+    // 2. Teacher Persona
+    const systemPrompt = `
+      Sen bir öğretmensin. Sadece ve sadece eğitim, okul dersleri, sınavlar ve öğrencilerinin sorduğu sorular ile ilgili içerik üretmelisin. 
+      Görevin öğrencilerin sorularını çözmek ve anlamadığı, takıldığı yerleri açıklayıcı bir dille anlatmaktır.
+      
+      KRİTİK KURAL: Eğitim ve ders dışı hiçbir konuya (günlük sohbet, magazin, siyaset, oyunlar vb. okul dışı başlıklar) girme, yorum yapma veya cevap verme. 
+      Eğer öğrenci ders dışı bir şey sorarsa, ona sadece eğitim ve soruları hakkında yardımcı olabileceğini nazikçe belirt ve konuyu derslere geri getir. 
+      
+      Yanıtların nazik, teşvik edici ve pedagojik olmalı. 
+      
+      Çözüm Kuralları:
+      1. Eğer birden fazla soru resmi gönderildiyse, her bir soruyu "1. Soru", "2. Soru" şeklinde başlıklandırarak ÇOK NET BİR AYRIMLA çöz.
+      2. Her bir soru için önce sorunun metnini/verilerini analiz et, sonra adım adım çözümü anlat.
+      3. Her sorunun cevabını net bir şekilde belirt.
+      4. Matematiksel ifadeleri MUTLAKA '$' (dolar) işareti içinde LaTeX formatında yaz.
+      - ÖNEMLİ: '$' işaretini 'escape' etme (ters slash kullanma). 
+      - Örnek: $\\frac{1}{2}$, $x^2$, $\\sqrt{x}$
+      - Paragraf blokları yapma, satır içi matematik kullan.
+
+      ${contextPrompt}
+    `;
+
+    // 3. Chat History
+    let historyText = "";
+    if (history && history.length > 0) {
+        history.slice(-6).forEach((msg: any) => {
+            historyText += `${msg.role === 'user' ? 'Öğrenci' : 'Öğretmen'}: ${msg.content}\n`;
+        });
+    }
+
+    const finalPrompt = `
+      ${systemPrompt}
+      
+      Geçmiş Konuşma:
+      ${historyText}
+      
+      Öğrenci: ${message}
+      Öğretmen:
+    `;
+
+    // 4. Rotational Logic
+    let lastError;
+    for (const apiKey of API_KEYS) {
+        try {
+            const model = getModel(apiKey);
+            
+            // Multimodal generation: [images..., text]
+            const result = await model.generateContent([
+                ...imageParts,
+                finalPrompt
+            ]);
+            
+            const responseText = result.response.text();
+            
+            if (!responseText || responseText.trim().length === 0) {
+                console.warn(`[Playground API] Empty response from Key: ${apiKey.substring(0, 8)}...`);
+                continue; 
+            }
+
+            return NextResponse.json({ 
+                success: true, 
+                reply: responseText,
+                resolvedImageUrl: firstResolvedImageUrl,
+                resolvedImageUrls: resolvedImageUrls
+            });
+
+        } catch (error: any) {
+            console.error(`[Playground API] Key failed: ${apiKey.substring(0, 8)}... Error: ${error.message}`);
+            lastError = error;
+            if (error.message?.includes('429')) continue;
+            continue;
+        }
+    }
+
+    throw lastError || new Error('All API keys failed');
+
+  } catch (error: any) {
+    console.error('AI Chat Error:', error);
+    return NextResponse.json({ success: false, error: 'İstek işlenirken bir hata oluştu: ' + error.message }, { status: 500 });
+  }
+}
