@@ -28,7 +28,7 @@ interface QuestionData {
 }
 
 export default function PrivateTestPage() {
-  const testId = "1062085";
+  const testId = "1066619";
   
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(true);
