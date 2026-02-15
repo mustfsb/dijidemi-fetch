@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { authFetch } from '@/lib/tokenManager';
 
 export default function CookieStatus() {
     const [status, setStatus] = useState<'valid' | 'refreshing' | 'error' | 'loading'>('loading');
@@ -8,7 +9,7 @@ export default function CookieStatus() {
     useEffect(() => {
         const checkStatus = async () => {
             try {
-                const res = await fetch('/api/status');
+                const res = await authFetch('/api/status');
                 const data = await res.json();
                 setStatus(data.status);
             } catch {

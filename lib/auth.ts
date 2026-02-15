@@ -2,26 +2,36 @@ import { NextRequest, NextResponse } from 'next/server';
 
 /**
  * Lightweight authentication check for API routes.
- * Verifies that the request has a valid login cookie (.ASPXAUTH).
- * Returns user info or a 401 response.
+ * 
+ * Checks for auth token in this order:
+ * 1. `x-dijidemi-token` header (preferred — set by client from localStorage)
+ * 2. `.ASPXAUTH` cookie (legacy fallback — set during login via Set-Cookie)
+ * 
+ * This dual approach ensures compatibility both locally and on Netlify/serverless.
  */
 export function requireAuth(request: NextRequest): { userId: string } | NextResponse {
-    // Check for the auth cookie set during login from upstream dijidemi.com
-    const authCookie = request.cookies.get('.ASPXAUTH')?.value;
+    // 1. Check for token in custom header (localStorage-based approach)
+    const headerToken = request.headers.get('x-dijidemi-token');
+    
+    // 2. Fallback: Check for the auth cookie (legacy browser cookie approach)
+    const cookieToken = request.cookies.get('.ASPXAUTH')?.value;
+    
+    const authToken = headerToken || cookieToken;
 
-    if (!authCookie) {
-        // Debug: Log all browser cookie names to help diagnose issues
+    if (!authToken) {
+        // Debug: Log available info to help diagnose
         const allCookies = request.cookies.getAll().map(c => c.name);
-        console.error('[Auth] .ASPXAUTH cookie missing. Available cookies:', allCookies);
+        const hasHeader = !!headerToken;
+        console.error(`[Auth] No auth token found. Header present: ${hasHeader}. Available cookies: [${allCookies.join(', ')}]`);
         return NextResponse.json(
             { error: 'Oturum açmanız gerekiyor.' },
             { status: 401 }
         );
     }
 
-    // Resolve user ID from cookie or header
-    const userId = request.cookies.get('user_uuid')?.value
-        || request.headers.get('x-user-id')
+    // Resolve user ID from multiple sources
+    const userId = request.headers.get('x-user-id')
+        || request.cookies.get('user_uuid')?.value
         || 'unknown';
 
     return { userId };

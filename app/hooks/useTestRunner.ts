@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Test, TestData, Video, Assignment, AssignmentContext, UserAnswers, TestScoreData } from '@/types';
 import type { WeeklySchedule } from '@/types/program';
+import { authFetch } from '@/lib/tokenManager';
 
 export function useTestRunner(
     showToast: (msg: string, type: 'success' | 'error') => void,
@@ -33,20 +34,19 @@ export function useTestRunner(
         // Log "Test Viewed" event
         const userId = localStorage.getItem('user_uuid');
         if (userId) {
-            fetch('/api/log/create', {
+            authFetch('/api/log/create', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
+                body: JSON.stringify({
                     user_id: userId,
-                    event_type: 'TEST_VIEWED', 
-                    target_id: tId 
+                    event_type: 'TEST_VIEWED',
+                    target_id: tId
                 })
             }).catch(console.error);
         }
 
         // Fetch test score
         setLoadingScore(true);
-        fetch(`/api/student/test-answers?testId=${tId}`)
+        authFetch(`/api/student/test-answers?testId=${tId}`)
             .then(r => r.json())
             .then((scoreData: TestScoreData) => {
                 if (scoreData.success) setTestScore(scoreData);
@@ -55,7 +55,7 @@ export function useTestRunner(
             .finally(() => setLoadingScore(false));
 
         try {
-            const res = await fetch(`/api/proxy?testId=${tId}`);
+            const res = await authFetch(`/api/proxy?testId=${tId}`);
             if (!res.ok) throw new Error('Test verisi alınamadı');
             const json: TestData = await res.json();
             setData(json);
@@ -64,7 +64,7 @@ export function useTestRunner(
             const count = json.SoruSayisi || 40;
             setVideoStatus('Video çözümler yükleniyor...');
 
-            fetch(`/api/videos?testId=${tId}&count=${count}`)
+            authFetch(`/api/videos?testId=${tId}&count=${count}`)
                 .then(r => r.json())
                 .then(d => {
                     if (d.success && d.videos) {
@@ -100,9 +100,8 @@ export function useTestRunner(
             }
 
             // Normal assignment flow
-            const res = await fetch('/api/student/assignment-test', {
+            const res = await authFetch('/api/student/assignment-test', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ odevId: asgn.id })
             });
 
@@ -112,12 +111,11 @@ export function useTestRunner(
             // Log "Assignment Opened" event
             const userId = localStorage.getItem('user_uuid');
             if (userId) {
-                fetch('/api/log/create', {
+                authFetch('/api/log/create', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
+                    body: JSON.stringify({
                         user_id: userId,
-                        event_type: 'ASSIGNMENT_OPENED', 
+                        event_type: 'ASSIGNMENT_OPENED',
                         target_id: asgn.id,
                         details: { title: asgn.title }
                     })
@@ -142,9 +140,8 @@ export function useTestRunner(
         if (!selectedTest) return;
         setIsSaving(true);
         try {
-            const res = await fetch('/api/student/save-answer', {
+            const res = await authFetch('/api/student/save-answer', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     testId: selectedTest.id,
                     answers: userAnswers,
@@ -153,17 +150,16 @@ export function useTestRunner(
                 })
             });
             if (!res.ok) throw new Error('Hata');
-            
+
             // Log Event
             const userId = localStorage.getItem('user_uuid');
             if (userId) {
-                fetch('/api/log/create', {
+                authFetch('/api/log/create', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
+                    body: JSON.stringify({
                         user_id: userId,
-                        event_type: 'TEST_SAVED', 
-                        details: { testId: selectedTest.id, questionCount: data?.SoruSayisi } 
+                        event_type: 'TEST_SAVED',
+                        details: { testId: selectedTest.id, questionCount: data?.SoruSayisi }
                     })
                 }).catch(console.error);
             }

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Test } from '@/types';
+import { authFetch, getStoredToken } from '@/lib/tokenManager';
 
 export function useAiTutor() {
     const [activeAiQuestion, setActiveAiQuestion] = useState<string | null>(null);
@@ -21,14 +22,14 @@ export function useAiTutor() {
         setIsAiLoadingFor(questionNumber);
 
         try {
-            const response = await fetch('/api/ai/solve', {
+            const response = await authFetch('/api/ai/solve', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     bookId: selectedBookId || '55782',
                     testId: selectedTest.id,
                     questionNumber: questionNumber,
-                    cookie: document.cookie
+                    // Send the stored token instead of document.cookie
+                    cookie: getStoredToken() || ''
                 })
             });
             const data = await response.json();

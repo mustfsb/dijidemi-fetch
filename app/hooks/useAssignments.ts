@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Assignment } from '@/types';
+import { authFetch } from '@/lib/tokenManager';
 
 export function useAssignments(
     showToast: (msg: string, type: 'success' | 'error') => void,
@@ -15,7 +16,7 @@ export function useAssignments(
         setLoading(true);
         setLoadingText('Yükleniyor...');
         try {
-            const res = await fetch(`/api/homework/list?t=${Date.now()}`);
+            const res = await authFetch(`/api/homework/list?t=${Date.now()}`);
 
             if (!res.ok) {
                 throw new Error('Ödev listesi yüklenemedi.');

@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import type { Book, BooksBySubject, Test } from '@/types';
 import booksData from '@/app/data/books.json';
+import { authFetch } from '@/lib/tokenManager';
 
 const groupBooksBySubject = (books: Book[]): BooksBySubject => {
     const subjectGroups: BooksBySubject = {};
@@ -41,9 +42,8 @@ export function useBooks() {
         setLoadingTests(true);
         setBookError(null);
         try {
-            const res = await fetch('/api/book-tests', {
+            const res = await authFetch('/api/book-tests', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id: book.id })
             });
             const d = await res.json();

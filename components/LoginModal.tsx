@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { LogIn, Loader2 } from 'lucide-react';
+import { fetchAndStoreToken } from '@/lib/tokenManager';
 
 interface LoginModalProps {
     onClose: () => void;
@@ -47,6 +48,10 @@ export default function LoginModal({ onClose, onLoginSuccess }: LoginModalProps)
                 localStorage.setItem('user_uuid', data.user_id);
             }
             localStorage.setItem('playground_username', username);
+
+            // Fetch and store the dijidemi token from Supabase into localStorage
+            // This is crucial for Netlify deployment where cookie-based auth fails
+            await fetchAndStoreToken();
 
             onLoginSuccess(data);
         } catch (err) {
