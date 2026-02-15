@@ -5,8 +5,8 @@ const nextConfig = {
 
   // Compiler optimizations
   compiler: {
-    // Remove console.log in production
-    removeConsole: process.env.NODE_ENV === 'production',
+    // Keep console logs for now to help debug Netlify issues
+    // removeConsole: process.env.NODE_ENV === 'production',
   },
 
   // Image optimization
