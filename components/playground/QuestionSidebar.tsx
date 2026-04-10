@@ -17,10 +17,9 @@ interface SidebarProps {
   onToggleQuestion: (id: string, title: string, imageUrl?: string, bookId?: string) => void;
 }
 
-// Parse books by subject
 function parseBooks() {
   const subjects: { [key: string]: { id: string; name: string }[] } = {};
-  
+
   booksData.forEach((book) => {
     let subject = "Diğer";
     if (book.name.includes("TÜRKÇE")) subject = "Türkçe";
@@ -30,34 +29,34 @@ function parseBooks() {
     else if (book.name.includes("KİMYA")) subject = "Kimya";
     else if (book.name.includes("FİZİK")) subject = "Fizik";
     else if (book.name.includes("BİYOLOJİ")) subject = "Biyoloji";
-    
+
     if (!subjects[subject]) subjects[subject] = [];
     subjects[subject].push({ id: book.id, name: book.name });
   });
-  
+
   return subjects;
 }
 
 export default function QuestionSidebar({ selectedQuestions, onToggleQuestion }: SidebarProps) {
   const subjects = useMemo(() => parseBooks(), []);
-  
+
   return (
-    <div className="h-full flex flex-col bg-zinc-950 border-r border-zinc-900 overflow-hidden">
-      <div className="p-4 border-b border-zinc-900">
+    <div className="h-full flex flex-col bg-[#0a0a0a] overflow-hidden">
+      <div className="p-4 border-b border-[#2a2a2a]">
         <h2 className="text-sm font-bold text-zinc-400 tracking-wider uppercase flex items-center gap-2">
           <Book className="w-4 h-4" />
           Kitaplar
         </h2>
         {selectedQuestions.length > 0 && (
-          <p className="text-xs text-red-500 mt-1 font-mono">
+          <p className="text-xs text-red-500 mt-1">
             {selectedQuestions.length} seçili
           </p>
         )}
       </div>
-      <div className="flex-1 overflow-y-auto p-2">
+      <div className="flex-1 overflow-y-auto playground-scroll p-2">
         {Object.entries(subjects).map(([subject, books]) => (
-          <SubjectNode 
-            key={subject} 
+          <SubjectNode
+            key={subject}
             subject={subject}
             books={books}
             selectedQuestions={selectedQuestions}
@@ -69,8 +68,8 @@ export default function QuestionSidebar({ selectedQuestions, onToggleQuestion }:
   );
 }
 
-function SubjectNode({ subject, books, selectedQuestions, onToggleQuestion }: { 
-  subject: string; 
+function SubjectNode({ subject, books, selectedQuestions, onToggleQuestion }: {
+  subject: string;
   books: { id: string; name: string }[];
   selectedQuestions: SelectedQuestion[];
   onToggleQuestion: (id: string, title: string, imageUrl?: string, bookId?: string) => void;
@@ -81,7 +80,7 @@ function SubjectNode({ subject, books, selectedQuestions, onToggleQuestion }: {
     <div className="select-none">
       <motion.div
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors hover:bg-zinc-900 text-zinc-400"
+        className="flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors hover:bg-[#1e1e1e] text-zinc-400"
       >
         <span className="text-zinc-600">
           {isOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
@@ -100,8 +99,8 @@ function SubjectNode({ subject, books, selectedQuestions, onToggleQuestion }: {
             className="overflow-hidden ml-4"
           >
             {books.map((book) => (
-              <BookNode 
-                key={book.id} 
+              <BookNode
+                key={book.id}
                 book={book}
                 subject={subject}
                 selectedQuestions={selectedQuestions}
@@ -115,8 +114,8 @@ function SubjectNode({ subject, books, selectedQuestions, onToggleQuestion }: {
   );
 }
 
-function BookNode({ book, subject, selectedQuestions, onToggleQuestion }: { 
-  book: { id: string; name: string }; 
+function BookNode({ book, subject, selectedQuestions, onToggleQuestion }: {
+  book: { id: string; name: string };
   subject: string;
   selectedQuestions: SelectedQuestion[];
   onToggleQuestion: (id: string, title: string, imageUrl?: string, bookId?: string) => void;
@@ -127,7 +126,7 @@ function BookNode({ book, subject, selectedQuestions, onToggleQuestion }: {
 
   const fetchTests = async () => {
     if (tests.length > 0 || loading) return;
-    
+
     setLoading(true);
     try {
       const res = await fetch("/api/book-tests", {
@@ -147,9 +146,7 @@ function BookNode({ book, subject, selectedQuestions, onToggleQuestion }: {
   };
 
   const handleClick = () => {
-    if (!isOpen) {
-      fetchTests();
-    }
+    if (!isOpen) fetchTests();
     setIsOpen(!isOpen);
   };
 
@@ -157,7 +154,7 @@ function BookNode({ book, subject, selectedQuestions, onToggleQuestion }: {
     <div className="select-none">
       <motion.div
         onClick={handleClick}
-        className="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors hover:bg-zinc-900 text-zinc-500"
+        className="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors hover:bg-[#1e1e1e] text-zinc-500"
       >
         <span className="text-zinc-700">
           {isOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
@@ -201,8 +198,8 @@ function BookNode({ book, subject, selectedQuestions, onToggleQuestion }: {
   );
 }
 
-function TestNode({ test, bookId, bookName, subject, selectedQuestions, onToggleQuestion }: { 
-  test: { id: string; name: string }; 
+function TestNode({ test, bookId, bookName, subject, selectedQuestions, onToggleQuestion }: {
+  test: { id: string; name: string };
   bookId: string;
   bookName: string;
   subject: string;
@@ -215,12 +212,12 @@ function TestNode({ test, bookId, bookName, subject, selectedQuestions, onToggle
 
   const fetchQuestionCount = async () => {
     if (questions.length > 0 || loading) return;
-    
+
     setLoading(true);
     try {
       const res = await fetch(`/api/student/test-answers?testId=${test.id}&turID=2`);
       const data = await res.json();
-      
+
       let count = 0;
       if (data.success) {
           if (data.ogCevaplar) count = data.ogCevaplar.length;
@@ -241,9 +238,7 @@ function TestNode({ test, bookId, bookName, subject, selectedQuestions, onToggle
   };
 
   const handleClick = () => {
-    if (!isOpen) {
-      fetchQuestionCount();
-    }
+    if (!isOpen) fetchQuestionCount();
     setIsOpen(!isOpen);
   };
 
@@ -251,7 +246,7 @@ function TestNode({ test, bookId, bookName, subject, selectedQuestions, onToggle
     <div className="select-none">
       <motion.div
         onClick={handleClick}
-        className="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors hover:bg-zinc-900 text-zinc-600"
+        className="flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors hover:bg-[#1e1e1e] text-zinc-600"
       >
         <span className="text-zinc-700">
           {isOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
@@ -279,7 +274,7 @@ function TestNode({ test, bookId, bookName, subject, selectedQuestions, onToggle
                 const questionId = `${test.id}-q${qNum}`;
                 const questionTitle = `${subject} - ${test.name} - Soru ${qNum}`;
                 const isSelected = selectedQuestions.some(q => q.id === questionId);
-                
+
                 return (
                   <motion.button
                     key={qNum}
@@ -307,9 +302,9 @@ function TestNode({ test, bookId, bookName, subject, selectedQuestions, onToggle
                     }}
                     className={`
                       w-10 h-10 rounded-lg text-sm font-mono font-bold transition-all flex items-center justify-center relative overflow-hidden
-                      ${isSelected 
-                        ? "bg-red-600 text-white shadow-lg shadow-red-900/40" 
-                        : "bg-zinc-900 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"}
+                      ${isSelected
+                        ? "bg-red-600 text-white shadow-lg shadow-red-900/40"
+                        : "bg-[#141414] text-zinc-500 hover:bg-[#1e1e1e] hover:text-zinc-300 border border-[#2a2a2a]"}
                     `}
                   >
                     {qNum}

@@ -11,27 +11,36 @@ import {
     verifySignedUserId,
 } from '@/lib/private-test/device-gate'
 
-const cspHeader = `
-    default-src 'self';
-    script-src 'self' 'unsafe-inline' ${process.env.NODE_ENV === 'development' ? "'unsafe-eval'" : ''};
-    style-src 'self' 'unsafe-inline';
-    img-src 'self' blob: data: https://*.dijidemi.com https://yayin.etapyayinlari.com https://*.supabase.co https://mofugpfhwbgcunkfkrhc.supabase.co; 
-    media-src 'self' https://video.yayincilik.net blob:;
-    font-src 'self' data: https://fonts.gstatic.com;
-    connect-src 'self' https://generativelanguage.googleapis.com https://*.supabase.co https://mofugpfhwbgcunkfkrhc.supabase.co;
-    object-src 'none';
-    base-uri 'self';
-    form-action 'self';
-    frame-ancestors 'none';
-    block-all-mixed-content;
-    upgrade-insecure-requests;
-`;
+function buildContentSecurityPolicy(nonce: string): string {
+    const scriptSources = [`'self'`, `'nonce-${nonce}'`];
+    if (process.env.NODE_ENV === 'development') {
+        scriptSources.push(`'unsafe-eval'`);
+    }
 
-const contentSecurityPolicyHeaderValue = cspHeader.replace(/\s{2,}/g, ' ').trim();
+    return [
+        `default-src 'self'`,
+        `script-src ${scriptSources.join(' ')}`,
+        `style-src 'self' 'unsafe-inline'`,
+        `img-src 'self' blob: data: https://*.dijidemi.com https://yayin.etapyayinlari.com https://*.supabase.co https://mofugpfhwbgcunkfkrhc.supabase.co`,
+        `media-src 'self' https://video.yayincilik.net blob:`,
+        `font-src 'self' data: https://fonts.gstatic.com`,
+        `connect-src 'self' https://generativelanguage.googleapis.com https://*.supabase.co https://mofugpfhwbgcunkfkrhc.supabase.co`,
+        `object-src 'none'`,
+        `base-uri 'self'`,
+        `form-action 'self'`,
+        `frame-ancestors 'none'`,
+        `block-all-mixed-content`,
+        `upgrade-insecure-requests`,
+    ].join('; ');
+}
 
 export async function middleware(request: NextRequest) {
+    const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set('x-nonce', nonce);
+
     // 1. Session Güncelleme
-    const { response, user } = await updateSession(request);
+    const { response, user } = await updateSession(request, requestHeaders);
     const { pathname } = request.nextUrl;
 
     // Supabase Admin Client (Yetki kontrolleri için)
@@ -47,7 +56,8 @@ export async function middleware(request: NextRequest) {
     response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
     response.headers.set('Cross-Origin-Opener-Policy', 'same-origin');
     response.headers.set('Cross-Origin-Resource-Policy', 'same-origin');
-    response.headers.set('Content-Security-Policy', contentSecurityPolicyHeaderValue);
+    response.headers.set('Content-Security-Policy', buildContentSecurityPolicy(nonce));
+    response.headers.set('x-nonce', nonce);
     if (process.env.NODE_ENV === 'production') {
         response.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
     }

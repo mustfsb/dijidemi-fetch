@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import cookieManager from '@/lib/cookie/cookieManager';
 import type { SaveAnswerRequest, UserAnswers } from '@/types';
-import { requireAuth, getClientIp } from '@/lib/auth';
+import {
+    requireAuth,
+    getClientIp,
+} from '@/lib/auth';
+import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
 import { RateLimits } from '@/lib/rate-limit';
 
 interface SaveAnswerResponse {
@@ -13,12 +16,12 @@ interface SaveAnswerResponse {
 export async function POST(request: NextRequest): Promise<NextResponse<SaveAnswerResponse>> {
     try {
         // Auth check
-        const auth = requireAuth(request);
+        const auth = await requireAuth(request);
         if (auth instanceof NextResponse) return auth;
 
         // Rate limit
         const ip = getClientIp(request);
-        if (!RateLimits.GENERAL(ip, auth.userId)) {
+        if (!(await RateLimits.GENERAL(ip, auth.userId))) {
             return NextResponse.json({ error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
         }
 
@@ -39,10 +42,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<SaveAnswe
         if (!Number.isFinite(limit) || limit < 1 || limit > 200) {
             return NextResponse.json({ error: 'Geçersiz totalQuestions' }, { status: 400 });
         }
-
-        // AUTH: Get fresh bot cookies from Manager
-        const authHeaders = await cookieManager.getHeaders();
-        const baseCookie = authHeaders['Cookie'] || '';
 
         // 1. Construct Answer String
         let answersString = "";
@@ -78,20 +77,22 @@ export async function POST(request: NextRequest): Promise<NextResponse<SaveAnswe
 
         const url = `https://www.dijidemi.com/Ogrenci2020/TestCevapKaydetV2?${params.toString()}`;
 
-        // 4. Construct Cookie Header
-        // Merge base Auth cookies with request-specific cookies
-        const fullCookie = `${baseCookie}; kullaniciId=0; soruCevap=${soruCevapJson}`;
-
-        const response = await fetch(url, {
+        const response = await requestDijidemiUpstream({
+            request,
+            userId: auth.userId,
+            url,
             method: 'GET',
             headers: {
-                'Cookie': fullCookie,
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
                 'X-Requested-With': 'XMLHttpRequest',
-                'Referer': 'https://www.dijidemi.com/Ogrenci',
-                'Content-Type': 'application/json; charset=UTF-8'
-            }
+                'Content-Type': 'application/json; charset=UTF-8',
+            },
+            additionalCookies: {
+                kullaniciId: '0',
+                soruCevap: soruCevapJson,
+            },
+            referrer: 'https://www.dijidemi.com/Ogrenci',
         });
+        if (response instanceof NextResponse) return response;
 
         if (!response.ok) {
             return NextResponse.json({ error: 'Failed to save answers' }, { status: response.status });

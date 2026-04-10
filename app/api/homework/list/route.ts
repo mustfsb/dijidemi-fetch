@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createAdminClient } from '@/lib/supabase/server';
+import { createClient } from '@/lib/supabase/server';
 import { requireAuth, getClientIp } from '@/lib/auth';
 import { RateLimits } from '@/lib/rate-limit';
 
@@ -39,25 +39,26 @@ function parseAssignmentDescription(description: string | null | undefined, type
 
 export async function GET(request: NextRequest) {
   // Auth check
-  const auth = requireAuth(request);
+  const auth = await requireAuth(request);
   if (auth instanceof NextResponse) return auth;
 
   // Rate limit
   const ip = getClientIp(request);
-  if (!RateLimits.GENERAL(ip, auth.userId)) {
+  if (!(await RateLimits.GENERAL(ip, auth.userId))) {
       return NextResponse.json({ error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
   }
   try {
-    const supabase = await createAdminClient();
+    const supabase = await createClient();
     const { data, error } = await supabase
       .from('homeworks')
-      .select('*')
+      .select('homework_identifier, description, status, type, created_at')
+      .eq('status', 'active')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
     // Map to Assignment type format for compatibility
-    const assignments = data.map(h => {
+    const assignments = (data || []).map(h => {
       // Derive type: DB column if exists, otherwise infer from description format
       const type = h.type || ((h.description || '').startsWith('Başlık:') ? 'ktt' : 'assignment');
       return {

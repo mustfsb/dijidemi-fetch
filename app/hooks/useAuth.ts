@@ -1,40 +1,31 @@
 import { useState, useEffect } from 'react';
-import { fetchAndStoreToken, clearStoredToken, isTokenStale, getStoredToken } from '@/lib/tokenManager';
+import { fetchAndStoreToken, clearStoredToken, isTokenStale, markTokenFresh } from '@/lib/tokenManager';
 
 export function useAuth(showToast: (msg: string, type: 'success' | 'error') => void) {
     const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
     const [showLoginModal, setShowLoginModal] = useState<boolean>(false);
-    const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
     useEffect(() => {
-        const savedLoginState = localStorage.getItem('isLoggedIn');
-        if (savedLoginState === 'true') {
-            setIsLoggedIn(true);
+        (async () => {
+            const savedLoginState = localStorage.getItem('isLoggedIn');
+            if (savedLoginState !== 'true') return;
 
-            // On mount, if logged in, fetch/refresh token if stale or missing
-            const token = getStoredToken();
-            if (!token || isTokenStale()) {
-                fetchAndStoreToken().then(success => {
-                    if (!success) {
-                        console.warn('[useAuth] Token refresh failed on mount');
-                    }
-                });
+            if (isTokenStale()) {
+                const success = await fetchAndStoreToken();
+                if (!success) {
+                    console.warn('[useAuth] Token refresh failed on mount');
+                }
             }
-        }
+
+            setIsLoggedIn(true);
+        })();
     }, []);
 
-    const handleLoginSuccess = async (data?: any) => {
+    const handleLoginSuccess = async (): Promise<void> => {
         setIsLoggedIn(true);
         setShowLoginModal(false);
         localStorage.setItem('isLoggedIn', 'true');
-
-        // Immediately fetch and store the dijidemi token from Supabase
-        const tokenSuccess = await fetchAndStoreToken();
-        if (tokenSuccess) {
-            console.log('[useAuth] Dijidemi token stored in localStorage');
-        } else {
-            console.warn('[useAuth] Failed to fetch dijidemi token after login');
-        }
+        markTokenFresh();
     };
 
     const handleLogout = async () => {
@@ -62,35 +53,8 @@ export function useAuth(showToast: (msg: string, type: 'success' | 'error') => v
         setIsLoggedIn(false);
         localStorage.removeItem('isLoggedIn');
         localStorage.removeItem('user_uuid');
-        // Clear the dijidemi token
         clearStoredToken();
         showToast('Çıkış yapıldı', 'success');
-    };
-
-    const refreshCookies = async (): Promise<boolean> => {
-        setIsRefreshing(true);
-        try {
-            const res = await fetch('/api/status?force=true');
-            const data = await res.json();
-            if (data.status === 'valid') {
-                // After server refreshes cookies, also update our local token
-                const tokenSuccess = await fetchAndStoreToken();
-                if (tokenSuccess) {
-                    showToast('Cookie yenilendi!', 'success');
-                } else {
-                    showToast('Cookie yenilendi, ancak token alınamadı.', 'error');
-                }
-                return true;
-            } else {
-                showToast('Cookie yenilenemedi.', 'error');
-            }
-        } catch (e) {
-            console.error('Refresh error:', e);
-            showToast('Cookie yenileme hatası.', 'error');
-        } finally {
-            setIsRefreshing(false);
-        }
-        return false;
     };
 
     return {
@@ -98,9 +62,7 @@ export function useAuth(showToast: (msg: string, type: 'success' | 'error') => v
         setIsLoggedIn,
         showLoginModal,
         setShowLoginModal,
-        isRefreshing,
         handleLoginSuccess,
         handleLogout,
-        refreshCookies,
     };
 }

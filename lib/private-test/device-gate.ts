@@ -1,8 +1,10 @@
+import { NextRequest } from 'next/server';
 import { supabase } from '@/lib/db/supabase';
 
 export const PRIVATE_TEST_DEVICE_COOKIE = 'pt_device';
 export const PRIVATE_TEST_UID_COOKIE = 'pt_uid';
-export const PRIVATE_TEST_COOKIE_MAX_AGE = 60 * 60 * 24 * 365 * 5; // 5 years, refreshed on success
+export const PRIVATE_TEST_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
+const PRIVATE_TEST_COOKIE_MAX_AGE_MS = PRIVATE_TEST_COOKIE_MAX_AGE * 1000;
 
 type GateStatus = 'ok' | 'enrolled' | 'unauthorized' | 'forbidden' | 'misconfigured' | 'error';
 
@@ -40,6 +42,12 @@ export interface EnrollmentState {
     status: 'ok' | 'misconfigured' | 'error';
     isOpen: boolean;
     enrollmentUntil: string | null;
+}
+
+export interface SignedUserIdentity {
+    userId: string;
+    expiresAt: number;
+    tokenKey: string;
 }
 
 const encoder = new TextEncoder();
@@ -129,25 +137,143 @@ export async function signUserId(userId: string): Promise<string | null> {
     const secret = getPrivateTestSecret();
     if (!secret) return null;
 
-    const signature = await hmacHex(secret, `pt_uid:${userId}`);
-    return `${userId}.${signature}`;
+    const expiresAt = Date.now() + PRIVATE_TEST_COOKIE_MAX_AGE_MS;
+    const signature = await hmacHex(secret, `pt_uid:${userId}:${expiresAt}`);
+    return `${userId}.${expiresAt}.${signature}`;
+}
+
+interface VerifySignedUserTokenOptions {
+    ignoreExpiration?: boolean;
+    ignoreRevocation?: boolean;
+}
+
+type SignedUserTokenVerificationError = 'revocation_lookup_failed';
+
+interface RevocationCheckResult {
+    revoked: boolean;
+    error: SignedUserTokenVerificationError | null;
+}
+
+interface VerifySignedUserTokenResult {
+    identity: SignedUserIdentity | null;
+    error: SignedUserTokenVerificationError | null;
+}
+
+export interface VerifySignedUserIdResult {
+    userId: string | null;
+    error: SignedUserTokenVerificationError | null;
+}
+
+async function getRevocationCheckResult(tokenKey: string): Promise<RevocationCheckResult> {
+    const { data, error } = await supabase
+        .from('revoked_pt_uid')
+        .select('token_key')
+        .eq('token_key', tokenKey)
+        .maybeSingle();
+
+    if (error) {
+        console.error('[PrivateTestGate] revoked token lookup failed:', error);
+        return {
+            revoked: false,
+            error: 'revocation_lookup_failed',
+        };
+    }
+
+    return {
+        revoked: Boolean(data),
+        error: null,
+    };
+}
+
+async function verifySignedUserTokenDetailed(
+    signedValue: string | undefined | null,
+    options: VerifySignedUserTokenOptions = {}
+): Promise<VerifySignedUserTokenResult> {
+    if (!signedValue) {
+        return { identity: null, error: null };
+    }
+    const secret = getPrivateTestSecret();
+    if (!secret) {
+        return { identity: null, error: null };
+    }
+
+    const parts = signedValue.split('.');
+    if (parts.length !== 3) {
+        return { identity: null, error: null };
+    }
+
+    const [userId, expiresAtRaw, sentSignature] = parts;
+    if (!userId || !expiresAtRaw || !sentSignature) {
+        return { identity: null, error: null };
+    }
+
+    const expiresAt = Number.parseInt(expiresAtRaw, 10);
+    if (!Number.isFinite(expiresAt) || expiresAt <= 0) {
+        return { identity: null, error: null };
+    }
+
+    const expectedSignature = await hmacHex(secret, `pt_uid:${userId}:${expiresAt}`);
+    if (!timingSafeEqual(sentSignature, expectedSignature)) {
+        return { identity: null, error: null };
+    }
+
+    if (!options.ignoreExpiration && expiresAt <= Date.now()) {
+        return { identity: null, error: null };
+    }
+
+    const tokenKey = `${userId}.${expiresAt}`;
+    if (!options.ignoreRevocation) {
+        const revocation = await getRevocationCheckResult(tokenKey);
+        if (revocation.error) {
+            return { identity: null, error: revocation.error };
+        }
+        if (revocation.revoked) {
+            return { identity: null, error: null };
+        }
+    }
+
+    return {
+        identity: { userId, expiresAt, tokenKey },
+        error: null,
+    };
+}
+
+export async function verifySignedUserToken(
+    signedValue: string | undefined | null,
+    options: VerifySignedUserTokenOptions = {}
+): Promise<SignedUserIdentity | null> {
+    const result = await verifySignedUserTokenDetailed(signedValue, options);
+    return result.identity;
+}
+
+export async function verifySignedUserIdResult(signedValue: string | undefined | null): Promise<VerifySignedUserIdResult> {
+    const result = await verifySignedUserTokenDetailed(signedValue);
+    return {
+        userId: result.identity?.userId || null,
+        error: result.error,
+    };
 }
 
 export async function verifySignedUserId(signedValue: string | undefined | null): Promise<string | null> {
-    if (!signedValue) return null;
-    const secret = getPrivateTestSecret();
-    if (!secret) return null;
+    const result = await verifySignedUserIdResult(signedValue);
+    return result.userId;
+}
 
-    const separator = signedValue.lastIndexOf('.');
-    if (separator <= 0) return null;
+export async function revokeSignedUserToken(signedValue: string | undefined | null): Promise<void> {
+    const identity = await verifySignedUserToken(signedValue, {
+        ignoreExpiration: true,
+        ignoreRevocation: true,
+    });
 
-    const userId = signedValue.slice(0, separator);
-    const sentSignature = signedValue.slice(separator + 1);
-    if (!userId || !sentSignature) return null;
+    if (!identity) return;
 
-    const expectedSignature = await hmacHex(secret, `pt_uid:${userId}`);
-    if (!timingSafeEqual(sentSignature, expectedSignature)) return null;
-    return userId;
+    const { error } = await supabase
+        .from('revoked_pt_uid')
+        .upsert({ token_key: identity.tokenKey });
+
+    if (error) {
+        throw error;
+    }
 }
 
 export async function verifyOrEnrollBinding(params: VerifyOrEnrollBindingParams): Promise<VerifyOrEnrollBindingResult> {
@@ -238,6 +364,21 @@ export async function verifyOrEnrollBinding(params: VerifyOrEnrollBindingParams)
     }
 
     return { status: 'ok', reason: 'binding_verified', cookieToken: deviceToken };
+}
+
+export async function verifyExistingBinding(params: Omit<VerifyOrEnrollBindingParams, 'autoEnroll'>): Promise<VerifyOrEnrollBindingResult> {
+    return verifyOrEnrollBinding({
+        ...params,
+        autoEnroll: false,
+    });
+}
+
+export async function verifyPrivateTestApiRequest(request: NextRequest, userId: string): Promise<VerifyOrEnrollBindingResult> {
+    return verifyExistingBinding({
+        userId,
+        userAgent: request.headers.get('user-agent') || '',
+        deviceToken: request.cookies.get(PRIVATE_TEST_DEVICE_COOKIE)?.value || null,
+    });
 }
 
 export async function getPrivateTestEnrollmentState(): Promise<EnrollmentState> {

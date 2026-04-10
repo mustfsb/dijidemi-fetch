@@ -1,30 +1,23 @@
-
 import { NextRequest, NextResponse } from 'next/server';
-import cookieManager from '@/lib/cookie/cookieManager';
 import type { Assignment, AssignmentsResponse } from '@/types';
-import { requireAuth, getClientIp } from '@/lib/auth';
+import {
+    requireAuth,
+    getClientIp,
+} from '@/lib/auth';
+import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
 import { RateLimits } from '@/lib/rate-limit';
-
-import { supabase } from '@/lib/db/supabase';
 
 export async function POST(request: NextRequest): Promise<NextResponse<AssignmentsResponse | { error: string }>> {
     try {
         // Auth check
-        const auth = requireAuth(request);
+        const auth = await requireAuth(request);
         if (auth instanceof NextResponse) return auth as NextResponse<AssignmentsResponse | { error: string }>;
 
         // Rate limit
         const ip = getClientIp(request);
-        if (!RateLimits.GENERAL(ip, auth.userId)) {
+        if (!(await RateLimits.GENERAL(ip, auth.userId))) {
             return NextResponse.json({ error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
         }
-
-        // Authenticate via CookieManager (loads from shared JSON or refreshes)
-        const authHeaders = await cookieManager.getHeaders();
-        const baseCookie = authHeaders['Cookie'] || '';
-
-        // Append app-specific non-auth cookies if needed
-        const fullCookie = `${baseCookie}; kullaniciId = 0; soruCevap = { "0": {} }`;
 
         // Try multiple endpoints to fetch assignments
         const endpoints = [
@@ -37,19 +30,24 @@ export async function POST(request: NextRequest): Promise<NextResponse<Assignmen
 
         for (const url of endpoints) {
             try {
-                const response = await fetch(url, {
+                const response = await requestDijidemiUpstream({
+                    request,
+                    userId: auth.userId,
+                    url,
                     method: 'POST',
                     headers: {
-                        'Cookie': fullCookie,
-                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                         'Accept': 'text/html, */*; q=0.01',
                         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
                         'X-Requested-With': 'XMLHttpRequest',
-                        'Origin': 'https://www.dijidemi.com',
-                        'Referer': 'https://www.dijidemi.com/Ogrenci',
                     },
-                    body: ''
+                    body: '',
+                    additionalCookies: {
+                        kullaniciId: '0',
+                        soruCevap: JSON.stringify({ 0: {} }),
+                    },
+                    referrer: 'https://www.dijidemi.com/Ogrenci',
                 });
+                if (response instanceof NextResponse) return response as NextResponse<AssignmentsResponse | { error: string }>;
 
                 if (response.ok) {
                     html = await response.text();
@@ -62,7 +60,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Assignmen
         }
 
         if (!fetchSuccess || !html) {
-            return NextResponse.json({ error: 'Ödev listesi alınamadı. Lütfen tekrar giriş yapın veya cookie yenileyin.' }, { status: 500 });
+            return NextResponse.json({ error: 'Ödev listesi alınamadı. Lütfen tekrar giriş yapın.' }, { status: 500 });
         }
 
         // Helper to decode HTML entities (e.g. &#214; -> Ö)
@@ -127,26 +125,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<Assignmen
                     link: `https://www.dijidemi.com/Ogrenci/Odev?id=${id}`
                 });
             });
-        }
-
-        // Log for debugging
-        console.log(`Found ${assignments.length} assignments`);
-
-        // Upsert Real Assignments to Supabase in one batch (avoids N+1 writes)
-        if (assignments.length > 0) {
-            const payload = assignments.map((a) => ({
-                homework_identifier: a.id,
-                description: `${a.title} (${a.dateRange})`,
-                status: 'active',
-            }));
-
-            const { error } = await supabase
-                .from('homeworks')
-                .upsert(payload, { onConflict: 'homework_identifier' });
-
-            if (error) {
-                console.error("Supabase upsert error:", error);
-            }
         }
 
         return NextResponse.json({ assignments });

@@ -1,18 +1,45 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
-import { PRIVATE_TEST_UID_COOKIE } from '@/lib/private-test/device-gate';
+import { PRIVATE_TEST_UID_COOKIE, verifySignedUserIdResult } from '@/lib/private-test/device-gate';
+import {
+    isLocalBrowserMode as isLocalBrowserEnvironmentMode,
+    localDijidemiBrowserManager,
+} from '@/lib/dijidemi/localBrowserManager';
 
 interface SessionTokenPayload {
     uid: string;
-    s: string;
-    c: string;
-    u: string;
     iat: number;
     exp: number;
 }
 
 const SESSION_TOKEN_TTL_MS = 1000 * 60 * 60; // 1 hour
 const MAX_USER_ID_LENGTH = 128;
+export const DIJIDEMI_SESSION_COOKIE = 'dijidemi_session';
+export const DIJIDEMI_UPSTREAM_COOKIE_NAMES = ['cf_clearance', 'ASP.NET_SessionId', 'usrtkn', '.ASPXAUTH'] as const;
+
+type DijidemiUpstreamCookieName = (typeof DIJIDEMI_UPSTREAM_COOKIE_NAMES)[number];
+
+type DijidemiUpstreamCookieMap = Partial<Record<DijidemiUpstreamCookieName, string>>;
+
+const DIJIDEMI_UPSTREAM_BASE_HEADERS: Readonly<Record<string, string>> = Object.freeze({
+    Host: 'www.dijidemi.com',
+    Accept: 'application/json, text/plain, */*',
+    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
+    'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Accept-Encoding': 'gzip, deflate, br',
+    Connection: 'keep-alive',
+});
+
+interface DijidemiUpstreamHeaderOptions {
+    additionalCookies?: Record<string, string | number | null | undefined>;
+    additionalHeaders?: Record<string, string>;
+    requireSession?: boolean;
+}
+
+interface DijidemiChallengeProbe {
+    body: string;
+    blocked: boolean;
+}
 
 function getSigningSecret(): string | null {
     const tokenSecret = process.env.DIJIDEMI_TOKEN_SECRET?.trim();
@@ -31,29 +58,6 @@ function safeHexEquals(a: string, b: string): boolean {
     } catch {
         return false;
     }
-}
-
-function parseSignedUserId(signedValue: string | undefined): string | null {
-    if (!signedValue) return null;
-    const secret = getSigningSecret();
-    if (!secret) return null;
-
-    const separator = signedValue.lastIndexOf('.');
-    if (separator <= 0) return null;
-
-    const userId = signedValue.slice(0, separator);
-    const signature = signedValue.slice(separator + 1);
-
-    if (!userId || !signature || userId.length > MAX_USER_ID_LENGTH) return null;
-    const expectedSignature = toHexHmac(secret, `pt_uid:${userId}`);
-    return safeHexEquals(signature, expectedSignature) ? userId : null;
-}
-
-function hasSessionCookie(request: NextRequest): boolean {
-    return Boolean(
-        request.cookies.get('.ASPXAUTH')?.value
-        || request.cookies.get('ASP.NET_SessionId')?.value
-    );
 }
 
 function parseSessionToken(token: string): SessionTokenPayload | null {
@@ -75,7 +79,7 @@ function parseSessionToken(token: string): SessionTokenPayload | null {
         const payloadJson = Buffer.from(encodedPayload, 'base64url').toString('utf8');
         const payload = JSON.parse(payloadJson) as SessionTokenPayload;
         if (!payload || typeof payload !== 'object') return null;
-        if (!payload.uid || !payload.s) return null;
+        if (!payload.uid) return null;
         if (typeof payload.iat !== 'number' || typeof payload.exp !== 'number') return null;
         return payload;
     } catch {
@@ -91,35 +95,16 @@ function verifySessionToken(token: string, expectedUserId: string): boolean {
     return true;
 }
 
-function isLegacyToken(token: string): boolean {
-    if (token.includes('.')) return false;
-    try {
-        const decoded = Buffer.from(token, 'base64').toString('utf8');
-        const parsed = JSON.parse(decoded) as { s?: unknown };
-        return typeof parsed?.s === 'string' && parsed.s.length > 0;
-    } catch {
-        return false;
-    }
-}
-
-export function createSignedSessionToken(payload: {
-    userId: string;
-    sessionId: string;
-    cfClearance?: string;
-    usrtkn?: string;
-}): string | null {
+export function createSignedSessionToken(payload: { userId: string }): string | null {
     const secret = getSigningSecret();
     if (!secret) return null;
 
     const userId = payload.userId.trim();
-    if (!userId || userId.length > MAX_USER_ID_LENGTH || !payload.sessionId) return null;
+    if (!userId || userId.length > MAX_USER_ID_LENGTH) return null;
 
     const now = Date.now();
     const tokenPayload: SessionTokenPayload = {
         uid: userId,
-        s: payload.sessionId,
-        c: payload.cfClearance || '',
-        u: payload.usrtkn || '',
         iat: now,
         exp: now + SESSION_TOKEN_TTL_MS,
     };
@@ -129,7 +114,143 @@ export function createSignedSessionToken(payload: {
     return `${encodedPayload}.${signature}`;
 }
 
-export function requireUserIdentity(request: NextRequest): { userId: string } | NextResponse {
+function normalizeCookieValue(value: string | number | null | undefined): string | null {
+    if (value === null || value === undefined) return null;
+    const normalized = String(value).trim();
+    return normalized || null;
+}
+
+function decodeCookieHeaderValue(value: string): string {
+    try {
+        return decodeURIComponent(value);
+    } catch {
+        return value;
+    }
+}
+
+function collectDijidemiUpstreamCookies(request: NextRequest): DijidemiUpstreamCookieMap {
+    return DIJIDEMI_UPSTREAM_COOKIE_NAMES.reduce<DijidemiUpstreamCookieMap>((cookies, name) => {
+        const value = request.cookies.get(name)?.value?.trim();
+        if (value) {
+            cookies[name] = decodeCookieHeaderValue(value);
+        }
+        return cookies;
+    }, {});
+}
+
+function buildCookieHeader(cookies: Record<string, string>): string {
+    return Object.entries(cookies)
+        .filter(([, value]) => Boolean(value))
+        .map(([name, value]) => `${name}=${value}`)
+        .join('; ');
+}
+
+export function hasDijidemiUpstreamSession(request: NextRequest): boolean {
+    const cookies = collectDijidemiUpstreamCookies(request);
+    return Boolean(cookies.cf_clearance && cookies['ASP.NET_SessionId']);
+}
+
+export function isLocalBrowserMode(): boolean {
+    return isLocalBrowserEnvironmentMode();
+}
+
+export function createMissingDijidemiSessionResponse(): NextResponse<{ error: string }> {
+    return NextResponse.json(
+        { error: 'Dijidemi oturumu bulunamadı. Lütfen tekrar giriş yapın.' },
+        { status: 401 }
+    );
+}
+
+export function getDijidemiUpstreamHeaders(
+    request: NextRequest,
+    options: DijidemiUpstreamHeaderOptions = {}
+): Record<string, string> | null {
+    const cookies = collectDijidemiUpstreamCookies(request) as Record<string, string>;
+
+    if ((options.requireSession ?? true) && (!cookies.cf_clearance || !cookies['ASP.NET_SessionId'])) {
+        return null;
+    }
+
+    for (const [name, rawValue] of Object.entries(options.additionalCookies || {})) {
+        const value = normalizeCookieValue(rawValue);
+        if (value) {
+            cookies[name] = value;
+        }
+    }
+
+    const cookieHeader = buildCookieHeader(cookies);
+    return {
+        ...DIJIDEMI_UPSTREAM_BASE_HEADERS,
+        ...options.additionalHeaders,
+        Cookie: cookieHeader,
+    };
+}
+
+export function setDijidemiUpstreamCookies(response: NextResponse, cookies: Record<string, string>): void {
+    for (const name of DIJIDEMI_UPSTREAM_COOKIE_NAMES) {
+        const value = normalizeCookieValue(cookies[name]);
+        if (!value) continue;
+
+        response.cookies.set(name, value, {
+            httpOnly: true,
+            path: '/',
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+        });
+    }
+}
+
+export function setDijidemiSessionCookie(response: NextResponse, userId: string): boolean {
+    const token = createSignedSessionToken({ userId });
+    if (!token) {
+        return false;
+    }
+
+    response.cookies.set(DIJIDEMI_SESSION_COOKIE, token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 60 * 60,
+    });
+
+    return true;
+}
+
+function isDijidemiChallengeBody(body: string): boolean {
+    const normalized = body.toLowerCase();
+    return (
+        normalized.includes('just a moment')
+        || normalized.includes('bir dakika lütfen')
+        || normalized.includes('enable javascript and cookies to continue')
+        || normalized.includes('güvenlik doğrulaması gerçekleştirme')
+    );
+}
+
+export async function probeDijidemiChallenge(response: Response): Promise<DijidemiChallengeProbe> {
+    const body = await response.clone().text().catch(() => '');
+    return {
+        body,
+        blocked: response.status === 403 && isDijidemiChallengeBody(body),
+    };
+}
+
+export function createDijidemiChallengeResponse(): NextResponse<{ error: string }> {
+    return NextResponse.json(
+        { error: 'Dijidemi isteği Cloudflare koruması tarafından engellendi. Lütfen daha sonra tekrar deneyin.' },
+        { status: 503 }
+    );
+}
+
+export async function getDijidemiSessionHealth(request: NextRequest, userId: string): Promise<'valid' | 'awaiting_verification' | 'missing_upstream_session' | 'error'> {
+    if (isLocalBrowserMode()) {
+        return localDijidemiBrowserManager.getHealthForUserId(userId);
+    }
+
+    return hasDijidemiUpstreamSession(request) ? 'valid' : 'missing_upstream_session';
+}
+
+export async function requireUserIdentity(request: NextRequest): Promise<{ userId: string } | NextResponse> {
     const secret = getSigningSecret();
     if (!secret) {
         return NextResponse.json(
@@ -138,51 +259,50 @@ export function requireUserIdentity(request: NextRequest): { userId: string } | 
         );
     }
 
-    const userId = parseSignedUserId(request.cookies.get(PRIVATE_TEST_UID_COOKIE)?.value);
-    if (!userId) {
+    const verification = await verifySignedUserIdResult(request.cookies.get(PRIVATE_TEST_UID_COOKIE)?.value);
+    if (verification.error) {
+        return NextResponse.json(
+            { error: 'Oturum doğrulama altyapısı kullanılamıyor. Lütfen daha sonra tekrar deneyin.' },
+            { status: 500 }
+        );
+    }
+
+    if (!verification.userId) {
         return NextResponse.json(
             { error: 'Oturum kimliği doğrulanamadı. Lütfen tekrar giriş yapın.' },
             { status: 401 }
         );
     }
 
-    return { userId };
+    return { userId: verification.userId };
 }
 
 /**
  * API auth guard:
  * 1) Requires a server-signed user identity cookie
- * 2) Accepts either a valid signed session token header or legacy session cookies
+ * 2) Accepts a valid signed session token from `dijidemi_session` or the temporary header bridge
  */
-export function requireAuth(request: NextRequest): { userId: string } | NextResponse {
-    const identity = requireUserIdentity(request);
+export async function requireAuth(request: NextRequest): Promise<{ userId: string } | NextResponse> {
+    const identity = await requireUserIdentity(request);
     if (identity instanceof NextResponse) return identity;
 
-    const headerToken = request.headers.get('x-dijidemi-token')?.trim();
-    const sessionCookiePresent = hasSessionCookie(request);
+    const headerToken = request.headers.get('x-dijidemi-token')?.trim() || null;
+    const cookieToken = request.cookies.get(DIJIDEMI_SESSION_COOKIE)?.value?.trim() || null;
+    const sessionToken = headerToken || cookieToken;
 
-    if (headerToken) {
-        if (verifySessionToken(headerToken, identity.userId)) {
-            return identity;
-        }
-
-        // Compatibility path for older localStorage token format during rollout.
-        if (sessionCookiePresent && isLegacyToken(headerToken)) {
-            return identity;
-        }
-
+    if (!sessionToken) {
         return NextResponse.json(
-            { error: 'Geçersiz veya süresi dolmuş oturum tokeni.' },
+            { error: 'Oturum açmanız gerekiyor.' },
             { status: 401 }
         );
     }
 
-    if (sessionCookiePresent) {
+    if (verifySessionToken(sessionToken, identity.userId)) {
         return identity;
     }
 
     return NextResponse.json(
-        { error: 'Oturum açmanız gerekiyor.' },
+        { error: 'Geçersiz veya süresi dolmuş oturum tokeni.' },
         { status: 401 }
     );
 }
@@ -199,19 +319,10 @@ function isValidIp(ip: string | null): ip is string {
  * Extract client IP from trusted proxy headers.
  */
 export function getClientIp(request: NextRequest): string {
-    const trustedHeaders = [
-        request.headers.get('x-nf-client-connection-ip'),
-        request.headers.get('cf-connecting-ip'),
-        request.headers.get('x-real-ip'),
-    ];
-
-    for (const candidate of trustedHeaders) {
-        if (isValidIp(candidate)) return candidate.trim();
+    const platformIp = request.headers.get('x-nf-client-connection-ip');
+    if (isValidIp(platformIp)) {
+        return platformIp.trim();
     }
-
-    const forwarded = request.headers.get('x-forwarded-for');
-    const firstHop = forwarded?.split(',')[0]?.trim() || null;
-    if (isValidIp(firstHop)) return firstHop;
 
     return 'unknown';
 }

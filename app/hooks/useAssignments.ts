@@ -2,11 +2,7 @@ import { useState } from 'react';
 import type { Assignment } from '@/types';
 import { authFetch } from '@/lib/tokenManager';
 
-export function useAssignments(
-    showToast: (msg: string, type: 'success' | 'error') => void,
-    refreshCookies: () => Promise<boolean>,
-    setIsLoggedIn: (val: boolean) => void
-) {
+export function useAssignments() {
     const [assignments, setAssignments] = useState<Assignment[]>([]);
     const [loading, setLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
@@ -15,20 +11,18 @@ export function useAssignments(
     const fetchAssignments = async (): Promise<void> => {
         setLoading(true);
         setLoadingText('Yükleniyor...');
+        setError(null);
         try {
-            const res = await authFetch(`/api/homework/list?t=${Date.now()}`);
+            const res = await authFetch('/api/homework/list');
 
             if (!res.ok) {
-                throw new Error('Ödev listesi yüklenemedi.');
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error || 'Ödev listesi yüklenemedi.');
             }
 
             const data = await res.json();
 
-            if (!data.assignments || data.assignments.length === 0) {
-                setAssignments([]);
-            } else {
-                setAssignments(data.assignments);
-            }
+            setAssignments(Array.isArray(data.assignments) ? data.assignments : []);
 
         } catch (e) {
             setError(e instanceof Error ? e.message : 'Bilinmeyen hata');

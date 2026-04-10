@@ -7,18 +7,17 @@ import { RateLimits } from '@/lib/rate-limit';
 export async function POST(request: NextRequest) {
   try {
     // Auth check
-    const auth = requireAuth(request);
+    const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
 
     // Rate limit
     const ip = getClientIp(request);
-    if (!RateLimits.GENERAL(ip, auth.userId)) {
+    if (!(await RateLimits.GENERAL(ip, auth.userId))) {
         return NextResponse.json({ error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
     }
 
     let body: {
       external_id?: string;
-      username?: string;
       action?: string;
       details?: unknown;
       target_id?: string;
@@ -28,12 +27,9 @@ export async function POST(request: NextRequest) {
     } catch {
       return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
     }
-    const { external_id, username, action } = body;
+    const { external_id, action } = body;
     if (external_id && (typeof external_id !== 'string' || external_id.length > 128)) {
       return NextResponse.json({ error: 'invalid external_id' }, { status: 400 });
-    }
-    if (username && (typeof username !== 'string' || username.length > 128)) {
-      return NextResponse.json({ error: 'invalid username' }, { status: 400 });
     }
     if (action && (typeof action !== 'string' || action.length > 64 || !/^[A-Z0-9_]+$/.test(action))) {
       return NextResponse.json({ error: 'invalid action' }, { status: 400 });
@@ -43,6 +39,29 @@ export async function POST(request: NextRequest) {
     const clientIp = ip;
     const userId = auth.userId;
     const now = new Date().toISOString();
+    const normalizedExternalId = typeof external_id === 'string' ? external_id.trim() : '';
+
+    if (external_id && !normalizedExternalId) {
+      return NextResponse.json({ error: 'invalid external_id' }, { status: 400 });
+    }
+
+    if (normalizedExternalId) {
+      const { data: conflictingUser, error: conflictError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('external_id', normalizedExternalId)
+        .neq('id', userId)
+        .maybeSingle();
+
+      if (conflictError) {
+        console.error('External ID conflict check failed:', conflictError);
+        return NextResponse.json({ error: 'Failed to validate external_id' }, { status: 500 });
+      }
+
+      if (conflictingUser) {
+        return NextResponse.json({ error: 'external_id already in use' }, { status: 409 });
+      }
+    }
 
     // Check if authenticated user exists
     const { data: existingUser } = await supabase
@@ -57,13 +76,12 @@ export async function POST(request: NextRequest) {
         .from('users')
         .update({ 
           last_login_at: now,
-          username: username?.trim() || undefined,
-          external_id: external_id?.trim() || undefined,
+          external_id: normalizedExternalId || undefined,
           updated_at: now,
         })
         .eq('id', userId);
     } else {
-      if (!external_id) {
+      if (!normalizedExternalId) {
         return NextResponse.json({ error: 'external_id required for first sync' }, { status: 400 });
       }
       // Create new user
@@ -71,8 +89,8 @@ export async function POST(request: NextRequest) {
         .from('users')
         .insert([{
           id: userId,
-          external_id: external_id.trim(),
-          username: username?.trim() || external_id.trim(),
+          external_id: normalizedExternalId,
+          username: normalizedExternalId,
           role: 'user',
           last_login_at: now,
           updated_at: now,

@@ -1,16 +1,18 @@
 import { CookieRecord, HeaderRecord } from '@/types';
 import { playwrightService } from './playwrightService';
 import { supabase } from '@/lib/db/supabase';
-import fs from 'fs';
-import path from 'path';
 
+// This singleton owns the shared automation Dijidemi session stored in auth_cookies.
+// It is safe for server-side upstream fetches only and must never be used for per-user authorization.
 class CookieManager {
     private cookies: CookieRecord;
     private baseHeaders: HeaderRecord;
     private isRefreshing: boolean = false;
     private refreshPromise: Promise<void> | null = null;
     private lastDbCheck: number = 0;
+    private lastCookieUpdateAt: number = 0;
     private readonly DB_CHECK_INTERVAL = 1000 * 60 * 5; // Check DB every 5 mins for updates from other instances
+    private readonly SHARED_REFRESH_INTERVAL_MS = 1000 * 60 * 60 * 6; // Avoid expensive hourly Playwright refreshes when cookies are still recent
 
     // Cached headers to avoid redundant Supabase reads on rapid successive calls
     private cachedHeaders: HeaderRecord | null = null;
@@ -22,7 +24,8 @@ class CookieManager {
         this.cookies = {
             'cf_clearance': '',
             'ASP.NET_SessionId': '',
-            'usrtkn': ''
+            'usrtkn': '',
+            '.ASPXAUTH': '',
         };
 
         this.baseHeaders = {
@@ -66,6 +69,7 @@ class CookieManager {
             if (data && data.cookie_json) {
                 const parsed = typeof data.cookie_json === 'string' ? JSON.parse(data.cookie_json) : data.cookie_json;
                 this.cookies = { ...this.cookies, ...parsed };
+                this.lastCookieUpdateAt = data.updated_at ? Date.parse(data.updated_at) || this.lastCookieUpdateAt : this.lastCookieUpdateAt;
                 return true;
             }
         } catch (err) {
@@ -76,14 +80,15 @@ class CookieManager {
 
     private async saveToSupabase(cookies: CookieRecord) {
         try {
-            console.log('Saving cookies to Supabase...');
+            console.log('Saving automation cookies to Supabase...');
+            const updatedAt = new Date().toISOString();
             // Upsert into auth_cookies with a fixed ID to ensure singleton-like behavior
             const { error } = await supabase
                 .from('auth_cookies')
                 .upsert({
                     id: 1,
                     cookie_json: cookies,
-                    updated_at: new Date().toISOString()
+                    updated_at: updatedAt
                 });
 
             if (error) {
@@ -93,22 +98,8 @@ class CookieManager {
                     console.error('Hint: Check if SUPABASE_SERVICE_ROLE_KEY is set in Netlify Environment Variables and if RLS policies allow the write.');
                 }
             } else {
-                console.log('Successfully saved to Supabase.');
-            }
-
-            // Also save to local runtime file for diagnostics (never to source-controlled paths).
-            try {
-                const dir = process.env.COOKIE_BACKUP_DIR?.trim() || '/tmp';
-                if (!fs.existsSync(dir)) {
-                    fs.mkdirSync(dir, { recursive: true });
-                }
-
-                const filePath = path.join(dir, 'cookies.json');
-                fs.writeFileSync(filePath, JSON.stringify(cookies, null, 2));
-                console.log(`Saved backup copy to ${filePath}`);
-            } catch (localError) {
-                // Ignore local write errors in production/serverless if read-only
-                console.warn('Could not save runtime cookies backup:', localError);
+                this.lastCookieUpdateAt = Date.parse(updatedAt) || Date.now();
+                console.log('Successfully saved automation cookies to Supabase. Keys:', Object.keys(cookies).sort());
             }
 
         } catch (err) {
@@ -116,9 +107,29 @@ class CookieManager {
         }
     }
 
+    private hasCriticalCookies(): boolean {
+        return Boolean(this.cookies['cf_clearance'] && this.cookies['ASP.NET_SessionId']);
+    }
+
+    private shouldRefreshSharedCookies(force: boolean): boolean {
+        if (!this.hasCriticalCookies()) {
+            return true;
+        }
+
+        if (!force) {
+            return false;
+        }
+
+        if (!this.lastCookieUpdateAt) {
+            return true;
+        }
+
+        return (Date.now() - this.lastCookieUpdateAt) >= this.SHARED_REFRESH_INTERVAL_MS;
+    }
+
     private async ensureValidCookies(force: boolean = false): Promise<void> {
         // 1. Check if we have valid cookies in memory
-        const hasInMemoryCookies = this.cookies['cf_clearance'] && this.cookies['ASP.NET_SessionId'];
+        const hasInMemoryCookies = this.hasCriticalCookies();
 
         // 2. If not, or if it's been a while, try to load from DB first
         const timeSinceLastDbCheck = Date.now() - this.lastDbCheck;
@@ -128,9 +139,10 @@ class CookieManager {
             this.lastDbCheck = Date.now();
         }
 
-        const hasCookies = this.cookies['cf_clearance'] && this.cookies['ASP.NET_SessionId'];
-
-        if (hasCookies && !force) {
+        if (!this.shouldRefreshSharedCookies(force)) {
+            if (force) {
+                console.log('Shared automation cookies are still fresh; skipping forced refresh.');
+            }
             return;
         }
 
@@ -153,9 +165,10 @@ class CookieManager {
 
                 this.cookies = { ...this.cookies, ...newCookies };
                 await this.saveToSupabase(this.cookies);
-                console.log('Cookies refreshed and saved to Supabase.');
+                console.log('Automation cookies refreshed. Keys:', Object.keys(this.cookies).sort());
             } catch (error) {
                 console.error('Failed to refresh cookies:', error);
+                throw error;
             } finally {
                 this.isRefreshing = false;
                 this.refreshPromise = null;
@@ -183,9 +196,17 @@ class CookieManager {
         return headers;
     }
 
-    // Called by Cron Job
+    async getCookies(): Promise<Array<{ name: string; value: string }>> {
+        await this.ensureValidCookies(false);
+        return Object.entries(this.cookies)
+            .filter(([, value]) => Boolean(value))
+            .map(([name, value]) => ({ name, value }));
+    }
+
+    // Called by Cron Job — always performs a real refresh regardless of lastCookieUpdateAt
     async refreshCookies(): Promise<void> {
-        this.cachedHeaders = null; // Invalidate cache on forced refresh
+        this.cachedHeaders = null;
+        this.lastCookieUpdateAt = 0; // Reset so shouldRefreshSharedCookies always returns true
         await this.ensureValidCookies(true);
     }
 }

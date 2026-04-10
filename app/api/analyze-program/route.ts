@@ -10,7 +10,7 @@ const DATA_FILE_PATH = path.join(DATA_DIR, 'program.json');
 
 export async function GET(req: NextRequest) {
     // Auth check
-    const auth = requireAuth(req);
+    const auth = await requireAuth(req);
     if (auth instanceof NextResponse) return auth;
 
     console.log('API: Program getirme istegi alindi.');
@@ -32,12 +32,12 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
     // Auth check
-    const auth = requireAuth(req);
+    const auth = await requireAuth(req);
     if (auth instanceof NextResponse) return auth;
 
     // Rate limit (HEAVY - triggers AI analysis + filesystem write)
     const ip = getClientIp(req);
-    if (!RateLimits.HEAVY(ip, auth.userId)) {
+    if (!(await RateLimits.HEAVY(ip, auth.userId))) {
         return NextResponse.json({ success: false, error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
     }
 

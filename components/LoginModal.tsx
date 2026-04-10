@@ -12,7 +12,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { LogIn, Loader2 } from 'lucide-react';
-import { fetchAndStoreToken } from '@/lib/tokenManager';
 
 interface LoginModalProps {
     onClose: () => void;
@@ -23,12 +22,55 @@ export default function LoginModal({ onClose, onLoginSuccess }: LoginModalProps)
     const [username, setUsername] = useState<string>('');
     const [password, setPassword] = useState<string>('');
     const [error, setError] = useState<string>('');
+    const [statusMessage, setStatusMessage] = useState<string>('');
     const [loading, setLoading] = useState<boolean>(false);
+
+    const wait = (ms: number): Promise<void> => new Promise((resolve) => {
+        window.setTimeout(resolve, ms);
+    });
+
+    const completeLogin = (data: LoginResponse): void => {
+        if (data.user_id) {
+            localStorage.setItem('user_uuid', data.user_id);
+        }
+        localStorage.setItem('playground_username', username);
+        onLoginSuccess(data);
+    };
+
+    const pollLoginStatus = async (attemptId: string): Promise<void> => {
+        const deadline = Date.now() + (1000 * 60 * 5);
+
+        while (Date.now() < deadline) {
+            const pollRes = await fetch(`/api/auth/login/status?attemptId=${encodeURIComponent(attemptId)}`, {
+                credentials: 'same-origin',
+            });
+            const pollData: LoginResponse = await pollRes.json();
+
+            if (pollRes.ok && pollData.status === 'ready' && pollData.success) {
+                completeLogin(pollData);
+                return;
+            }
+
+            if (pollData.status === 'opening_browser' || pollData.status === 'awaiting_verification') {
+                setStatusMessage(
+                    pollData.message
+                    || 'Chrome penceresinde Dijidemi doğrulamasını tamamlayın.'
+                );
+                await wait(1500);
+                continue;
+            }
+
+            throw new Error(pollData.error || pollData.message || 'Giriş doğrulaması başarısız.');
+        }
+
+        throw new Error('Giriş doğrulaması zaman aşımına uğradı.');
+    };
 
     const handleSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
         e.preventDefault();
         setLoading(true);
         setError('');
+        setStatusMessage('');
 
         try {
             const res = await fetch('/api/auth/login', {
@@ -39,21 +81,20 @@ export default function LoginModal({ onClose, onLoginSuccess }: LoginModalProps)
 
             const data: LoginResponse = await res.json();
 
+            if (res.status === 202 && data.attemptId) {
+                setStatusMessage(
+                    data.message
+                    || 'Chrome penceresinde Dijidemi doğrulamasını tamamlayın.'
+                );
+                await pollLoginStatus(data.attemptId);
+                return;
+            }
+
             if (!res.ok) {
                 throw new Error(data.error || 'Giriş başarısız');
             }
 
-            // Store user_id returned from the atomic login+sync response
-            if (data.user_id) {
-                localStorage.setItem('user_uuid', data.user_id);
-            }
-            localStorage.setItem('playground_username', username);
-
-            // Fetch and store the dijidemi token from Supabase into localStorage
-            // This is crucial for Netlify deployment where cookie-based auth fails
-            await fetchAndStoreToken();
-
-            onLoginSuccess(data);
+            completeLogin(data);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Bilinmeyen hata');
         } finally {
@@ -100,6 +141,12 @@ export default function LoginModal({ onClose, onLoginSuccess }: LoginModalProps)
                     {error && (
                         <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-sm text-center">
                             {error}
+                        </div>
+                    )}
+
+                    {!error && statusMessage && (
+                        <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-600 text-sm text-center">
+                            {statusMessage}
                         </div>
                     )}
 

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Test } from '@/types';
-import { authFetch, getStoredToken } from '@/lib/tokenManager';
+import { authFetch } from '@/lib/tokenManager';
 
 export function useAiTutor() {
     const [activeAiQuestion, setActiveAiQuestion] = useState<string | null>(null);
@@ -28,8 +28,6 @@ export function useAiTutor() {
                     bookId: selectedBookId || '55782',
                     testId: selectedTest.id,
                     questionNumber: questionNumber,
-                    // Send the stored token instead of document.cookie
-                    cookie: getStoredToken() || ''
                 })
             });
             const data = await response.json();

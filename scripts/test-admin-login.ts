@@ -38,10 +38,13 @@ async function testLogin() {
     return;
   }
 
-  const isHashed = storedPassword.startsWith('$2a$') || storedPassword.startsWith('$2b$') || storedPassword.startsWith('$2y$');
-  const passwordValid = isHashed
-    ? await bcrypt.compare(password, storedPassword)
-    : storedPassword === password;
+  const isBcryptHash = storedPassword.startsWith('$2a$') || storedPassword.startsWith('$2b$');
+  if (!isBcryptHash) {
+    console.error('Login failed: admin password requires manual bcrypt migration.');
+    return;
+  }
+
+  const passwordValid = await bcrypt.compare(password, storedPassword);
 
   if (!passwordValid) {
     console.error('Login failed: password mismatch.');
@@ -52,7 +55,7 @@ async function testLogin() {
     username: data.username,
     role: data.role,
     hasPassword: true,
-    hashed: isHashed,
+    hashed: isBcryptHash,
   });
 }
 

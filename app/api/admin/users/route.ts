@@ -159,11 +159,67 @@ export async function DELETE(request: NextRequest) {
 
         if(!id || id.length > 128) return NextResponse.json({error: 'ID required'}, {status: 400});
 
-        const { error } = await supabaseServiceRole.from("users").delete().eq("id", id);
-        if (error) throw error;
+        const { data: userRecord, error: userLookupError } = await supabaseServiceRole
+          .from('users')
+          .select('id, username, external_id')
+          .eq('id', id)
+          .maybeSingle();
+        if (userLookupError) throw userLookupError;
+        if (!userRecord) {
+          return NextResponse.json({ error: 'User not found' }, { status: 404 });
+        }
+
+        const adminIdentifiers = Array.from(new Set(
+          [userRecord.username, userRecord.external_id]
+            .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+            .map((value) => value.trim())
+        ));
+
+        let adminUsername: string | null = null;
+        for (const identifier of adminIdentifiers) {
+          const { data: adminRecord, error: adminLookupError } = await supabaseServiceRole
+            .from('admin')
+            .select('username')
+            .eq('username', identifier)
+            .maybeSingle();
+
+          if (adminLookupError) throw adminLookupError;
+          if (adminRecord?.username) {
+            adminUsername = adminRecord.username;
+            break;
+          }
+        }
+
+        const { error: deleteUserError } = await supabaseServiceRole.from("users").delete().eq("id", id);
+        if (deleteUserError) throw deleteUserError;
+
+        if (adminUsername) {
+          const { error: deleteAdminRowError } = await supabaseServiceRole
+            .from('admin')
+            .delete()
+            .eq('username', adminUsername);
+          if (deleteAdminRowError) throw deleteAdminRowError;
+
+          const mirroredEmail = `${adminUsername}@internal.admin`;
+          const { data: authUsersPage, error: listUsersError } = await supabaseServiceRole.auth.admin.listUsers({
+            page: 1,
+            perPage: 1000,
+          });
+          if (listUsersError) throw listUsersError;
+
+          const mirroredUsers = Array.isArray(authUsersPage?.users)
+            ? authUsersPage.users as Array<{ id: string; email?: string | null }>
+            : [];
+          const mirroredUser = mirroredUsers.find((user) => user.email === mirroredEmail);
+          if (mirroredUser) {
+            const { error: deleteAuthUserError } = await supabaseServiceRole.auth.admin.deleteUser(mirroredUser.id);
+            if (deleteAuthUserError) throw deleteAuthUserError;
+          }
+        }
         
         return NextResponse.json({ success: true });
     } catch(e) {
+        console.error('[Admin Users DELETE] Failed:', e);
         return NextResponse.json({ error: 'Delete failed' }, { status: 500 });
     }
 }

@@ -1,14 +1,60 @@
-import { chromium } from 'playwright';
+import type { Browser, BrowserContext, Page, Response as PlaywrightResponse } from 'playwright';
 
-interface CookieData {
-    'cf_clearance': string;
+export interface CookieData {
+    cf_clearance: string;
     'ASP.NET_SessionId': string;
-    'usrtkn': string;
+    usrtkn: string;
+    '.ASPXAUTH': string;
     [key: string]: string;
+}
+
+export interface DijidemiLoginCredentials {
+    username: string;
+    password: string;
+}
+
+interface PlaywrightTimingConfig {
+    isLambda: boolean;
+    loginPageTimeoutMs: number;
+    loginFormTimeoutMs: number;
+    loginFormRetryMs: number;
+    loginResponseTimeoutMs: number;
+    postLoginIdleTimeoutMs: number;
+    postLoginStabilizeMs: number;
+}
+
+type DijidemiLoginErrorCode =
+    | 'browser_missing'
+    | 'challenge_failed'
+    | 'invalid_credentials'
+    | 'upstream_error';
+
+export class DijidemiLoginError extends Error {
+    readonly code: DijidemiLoginErrorCode;
+
+    constructor(code: DijidemiLoginErrorCode, message: string) {
+        super(message);
+        this.name = 'DijidemiLoginError';
+        this.code = code;
+    }
 }
 
 class PlaywrightService {
     private static instance: PlaywrightService;
+    private static readonly USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36';
+    private static readonly STEALTH_INIT_SCRIPT = `
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        Object.defineProperty(navigator, 'languages', { get: () => ['tr-TR', 'tr', 'en-US', 'en'] });
+        Object.defineProperty(navigator, 'platform', { get: () => 'MacIntel' });
+        Object.defineProperty(navigator, 'plugins', {
+            get: () => [
+                { name: 'Chrome PDF Plugin' },
+                { name: 'Chrome PDF Viewer' },
+                { name: 'Native Client' },
+            ],
+        });
+        window.chrome = window.chrome || { runtime: {} };
+    `;
 
     private constructor() { }
 
@@ -19,131 +65,388 @@ class PlaywrightService {
         return PlaywrightService.instance;
     }
 
-    async getFreshCookies(): Promise<CookieData> {
-        console.log('Starting Cloudflare bypass via Playwright...');
+    async getFreshCookies(credentials?: DijidemiLoginCredentials): Promise<CookieData> {
+        console.log('Starting Dijidemi login via Playwright...');
 
-        let browser;
+        const resolvedCredentials = this.resolveCredentials(credentials);
+        const timings = this.getTimingConfig();
+        let browser: Browser | null = null;
 
-        // Check if running in Netlify/Lambda environment
-        const isLambda = !!process.env.AWS_LAMBDA_FUNCTION_VERSION || !!process.env.NETLIFY || !!process.env.AWS_LAMBDA_FUNCTION_NAME;
+        try {
+            browser = await this.launchBrowser(timings.isLambda);
+            const context = await this.createContext(browser);
 
-        if (isLambda) {
-            console.log('Running in Lambda/Netlify environment. Using @sparticuz/chromium');
-            const sparticuzChromium = await import('@sparticuz/chromium');
-            const { chromium: playwrightChromium } = await import('playwright-core');
+            const page = await context.newPage();
+            await this.ensureLoginForm(page, timings);
+            await this.performLogin(page, resolvedCredentials, timings);
+            await this.ensureAuthenticatedSession(page, context);
 
-            // @sparticuz/chromium v123+ might export 'default'
-            const chromium = (sparticuzChromium.default || sparticuzChromium) as any;
+            const cookies = this.extractCookieMap(await context.cookies());
+            if (cookies['ASP.NET_SessionId'] && !cookies.usrtkn) {
+                cookies.usrtkn = `tkn=${cookies['ASP.NET_SessionId']}`;
+            }
 
-            // Ensure we get a string path. Some versions require a location, others don't.
-            // If this still fails with "Received undefined", it means the library can't find its local binary.
-            // Externalizing in netlify.toml should fix the finding issue.
-            const executablePath = await chromium.executablePath();
+            if (!cookies.cf_clearance || !cookies['ASP.NET_SessionId']) {
+                const loginErrorText = await this.readLoginFailureMessage(page);
+                if (loginErrorText) {
+                    throw new DijidemiLoginError('invalid_credentials', loginErrorText);
+                }
+                throw new DijidemiLoginError(
+                    'challenge_failed',
+                    'Dijidemi oturumu alınamadı. Cloudflare challenge tamamlanamadı.'
+                );
+            }
 
-            browser = await playwrightChromium.launch({
-                args: chromium.args,
-                executablePath: executablePath,
-                headless: chromium.headless,
-            });
+            console.log('Dijidemi cookies retrieved successfully.');
+            return cookies;
+        } catch (error) {
+            if (error instanceof DijidemiLoginError) {
+                throw error;
+            }
 
-        } else {
+            if (this.isTargetClosedError(error)) {
+                throw new DijidemiLoginError(
+                    'challenge_failed',
+                    'Tarayıcı oturumu Cloudflare doğrulaması sırasında kapandı. Sunucu zaman aşımı oluşmuş olabilir.'
+                );
+            }
+
+            const message = error instanceof Error ? error.message : 'Unknown Playwright login error';
+            throw new DijidemiLoginError('upstream_error', message);
+        } finally {
+            if (browser) {
+                await browser.close();
+            }
+        }
+    }
+
+    private resolveCredentials(credentials?: DijidemiLoginCredentials): DijidemiLoginCredentials {
+        const username = credentials?.username?.trim() || process.env.DIJIDEMI_USERNAME?.trim() || '';
+        const password = credentials?.password?.trim() || process.env.DIJIDEMI_PASSWORD?.trim() || '';
+
+        if (!username || !password) {
+            throw new DijidemiLoginError(
+                'upstream_error',
+                'DIJIDEMI_USERNAME ve DIJIDEMI_PASSWORD yapılandırılmamış.'
+            );
+        }
+
+        return { username, password };
+    }
+
+    private async launchBrowser(isLambda: boolean): Promise<Browser> {
+        try {
+            if (isLambda) {
+                console.log('Running in Lambda/Netlify environment. Using @sparticuz/chromium');
+                const sparticuzChromium = await import('@sparticuz/chromium');
+                const { chromium: playwrightChromium } = await import('playwright-core');
+                const chromium = (sparticuzChromium.default || sparticuzChromium) as unknown as {
+                    args: string[];
+                    executablePath: () => Promise<string>;
+                    headless?: boolean;
+                };
+
+                return playwrightChromium.launch({
+                    args: chromium.args,
+                    executablePath: await chromium.executablePath(),
+                    headless: chromium.headless ?? true,
+                });
+            }
+
             console.log('Running in local environment. Using standard playwright.');
             const { chromium } = await import('playwright');
-            browser = await chromium.launch({
+            return chromium.launch({
                 headless: true,
                 args: [
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
-                    '--disable-blink-features=AutomationControlled' // Stealth mode
-                ]
+                    '--disable-blink-features=AutomationControlled',
+                ],
             });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown Playwright launch error';
+            if (message.includes('Executable doesn\'t exist')) {
+                throw new DijidemiLoginError(
+                    'browser_missing',
+                    'Playwright browser binary bulunamadı. `npx playwright install chromium` çalıştırılmalı.'
+                );
+            }
+            throw new DijidemiLoginError('upstream_error', message);
+        }
+    }
+
+    private async createContext(browser: Browser): Promise<BrowserContext> {
+        const context = await browser.newContext({
+            userAgent: PlaywrightService.USER_AGENT,
+            viewport: { width: 1280, height: 720 },
+            locale: 'tr-TR',
+            timezoneId: 'Europe/Istanbul',
+            javaScriptEnabled: true,
+        });
+
+        await context.addInitScript({ content: PlaywrightService.STEALTH_INIT_SCRIPT });
+        await context.setExtraHTTPHeaders({
+            'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+        });
+
+        return context;
+    }
+
+    private getTimingConfig(): PlaywrightTimingConfig {
+        const isLambda = Boolean(
+            process.env.AWS_LAMBDA_FUNCTION_VERSION
+            || process.env.NETLIFY
+            || process.env.AWS_LAMBDA_FUNCTION_NAME
+        );
+
+        if (isLambda) {
+            return {
+                isLambda,
+                loginPageTimeoutMs: 15000,
+                loginFormTimeoutMs: 8000,
+                loginFormRetryMs: 3000,
+                loginResponseTimeoutMs: 10000,
+                postLoginIdleTimeoutMs: 5000,
+                postLoginStabilizeMs: 1500,
+            };
+        }
+
+        return {
+            isLambda,
+            loginPageTimeoutMs: 60000,
+            loginFormTimeoutMs: 15000,
+            loginFormRetryMs: 5000,
+            loginResponseTimeoutMs: 12000,
+            postLoginIdleTimeoutMs: 6000,
+            postLoginStabilizeMs: 1500,
+        };
+    }
+
+    private async ensureLoginForm(page: Page, timings: PlaywrightTimingConfig): Promise<void> {
+        console.log('Navigating to dijidemi.com/login...');
+        await page.goto('https://www.dijidemi.com/login', {
+            waitUntil: 'domcontentloaded',
+            timeout: timings.loginPageTimeoutMs,
+        });
+
+        try {
+            await page.waitForSelector('#txtUserName', {
+                state: 'visible',
+                timeout: timings.loginFormTimeoutMs,
+            });
+            return;
+        } catch (error) {
+            if (this.isTargetClosedError(error)) {
+                throw new DijidemiLoginError(
+                    'challenge_failed',
+                    'Tarayıcı oturumu login formu beklenirken kapandı.'
+                );
+            }
+
+            if (await this.isChallengePage(page)) {
+                await page.waitForTimeout(timings.loginFormRetryMs).catch(() => undefined);
+                const loginFormVisible = await page.locator('#txtUserName').isVisible().catch(() => false);
+                if (loginFormVisible) {
+                    return;
+                }
+            }
+
+            const failureText = await this.readChallengeMessage(page);
+            throw new DijidemiLoginError(
+                'challenge_failed',
+                failureText || 'Cloudflare challenge çözülemedi; login formu görünmedi.'
+            );
+        }
+    }
+
+    private async performLogin(
+        page: Page,
+        credentials: DijidemiLoginCredentials,
+        timings: PlaywrightTimingConfig
+    ): Promise<void> {
+        const loginResponsePromise = page.waitForResponse(
+            (response) => response.url().includes('/Login/UserLogin') && response.request().method() === 'POST',
+            { timeout: timings.loginResponseTimeoutMs }
+        ).catch(() => null);
+
+        await page.fill('#txtUserName', credentials.username);
+        await page.fill('#txtPassword', credentials.password);
+        await page.click('#btnLogin');
+
+        const loginResponse = await loginResponsePromise;
+        if (loginResponse) {
+            await this.handleLoginResponse(loginResponse);
+        }
+
+        await page.waitForLoadState('networkidle', { timeout: timings.postLoginIdleTimeoutMs }).catch(() => undefined);
+        await page.waitForTimeout(timings.postLoginStabilizeMs).catch(() => undefined);
+        const loginErrorText = await this.readLoginFailureMessage(page);
+        if (loginErrorText) {
+            throw new DijidemiLoginError('invalid_credentials', loginErrorText);
+        }
+    }
+
+    private async ensureAuthenticatedSession(page: Page, context: BrowserContext): Promise<void> {
+        // ASP.NET_SessionId is set from the 302 redirect response headers, before the redirect
+        // destination page loads. If it's already in the context, the session is valid even if
+        // the current page is a Cloudflare challenge page.
+        const earlyCheck = this.extractCookieMap(await context.cookies());
+        if (earlyCheck['ASP.NET_SessionId']) {
+            return;
+        }
+
+        // Session cookie not yet available — wait for challenge to resolve (up to 15s)
+        if (await this.isChallengePage(page)) {
+            const deadline = Date.now() + 15000;
+            while (Date.now() < deadline) {
+                await page.waitForTimeout(1500).catch(() => undefined);
+                const stillChallenge = await this.isChallengePage(page);
+                if (!stillChallenge) break;
+            }
+            if (await this.isChallengePage(page)) {
+                throw new DijidemiLoginError(
+                    'challenge_failed',
+                    'Dijidemi oturumu oluşturuldu ancak korumalı sayfa Cloudflare doğrulamasında takıldı.'
+                );
+            }
+        }
+
+        const currentUrl = page.url().toLowerCase();
+        if (currentUrl.includes('/login')) {
+            const loginErrorText = await this.readLoginFailureMessage(page);
+            if (loginErrorText) {
+                throw new DijidemiLoginError('invalid_credentials', loginErrorText);
+            }
+            throw new DijidemiLoginError(
+                'challenge_failed',
+                'Giriş sonrası korumalı sayfaya yönlendirme tamamlanamadı.'
+            );
+        }
+    }
+
+    private async handleLoginResponse(response: PlaywrightResponse): Promise<void> {
+        const status = response.status();
+        if (status === 401) {
+            throw new DijidemiLoginError('invalid_credentials', 'Kullanıcı adı veya şifre hatalı.');
+        }
+        if (status >= 400) {
+            throw new DijidemiLoginError('upstream_error', `Dijidemi login upstream hatası: ${status}`);
+        }
+
+        const contentType = response.headers()['content-type'] || '';
+        if (!contentType.includes('application/json')) {
+            return;
         }
 
         try {
-            const context = await browser.newContext({
-                userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-                viewport: { width: 1280, height: 720 },
-                locale: 'tr-TR',
-                timezoneId: 'Europe/Istanbul'
-            });
-            const page = await context.newPage();
-
-            // Navigate to the login page
-            console.log('Navigating to dijidemi.com/login...');
-            await page.goto('https://www.dijidemi.com/login', {
-                waitUntil: 'domcontentloaded',
-                timeout: 60000
-            });
-
-            // Wait for Username field - this confirms we passed the initial CF/DDOS screen
-            console.log('Waiting for login form...');
-            try {
-                await page.waitForSelector('#txtUserName', { state: 'visible', timeout: 30000 });
-            } catch (e) {
-                console.log('Login form not found immediately, might be in CF Challenge. Waiting longer...');
-                await page.waitForTimeout(5000);
+            const payload = await response.json() as Record<string, unknown>;
+            const success = payload.Success ?? payload.success;
+            if (success === false) {
+                const message = typeof payload.Message === 'string'
+                    ? payload.Message
+                    : typeof payload.message === 'string'
+                        ? payload.message
+                        : 'Kullanıcı adı veya şifre hatalı.';
+                throw new DijidemiLoginError('invalid_credentials', message);
             }
-
-            // Perform Login
-            console.log('Attempting login...');
-            try {
-                // Determine if we are actually on the form
-                const isFormVisible = await page.isVisible('#txtUserName');
-                if (isFormVisible) {
-                    const dijidemiUser = process.env.DIJIDEMI_USERNAME;
-                    const dijidemiPass = process.env.DIJIDEMI_PASSWORD;
-                    if (!dijidemiUser || !dijidemiPass) {
-                        throw new Error('DIJIDEMI_USERNAME and DIJIDEMI_PASSWORD environment variables are required');
-                    }
-                    await page.fill('#txtUserName', dijidemiUser);
-                    await page.fill('#txtPassword', dijidemiPass);
-
-                    // Click login
-                    await page.click('#btnLogin');
-
-                    console.log('Login clicked. Waiting for navigation...');
-
-                    // Wait for successful login indicator (e.g. redirect out of /login)
-                    // Or wait for network idle
-                    await page.waitForLoadState('networkidle', { timeout: 30000 });
-                } else {
-                    console.error('Could not find login form. Possibly stuck on Cloudflare.');
-                }
-
-            } catch (loginError) {
-                console.error('Login attempt failed or timed out:', loginError);
-            }
-
-            const cookies = await context.cookies();
-            const cookieMap: CookieData = {
-                'cf_clearance': '',
-                'ASP.NET_SessionId': '',
-                'usrtkn': ''
-            };
-
-            cookies.forEach(cookie => {
-                if (cookie.name in cookieMap || ['cf_clearance', 'ASP.NET_SessionId', 'usrtkn'].includes(cookie.name)) {
-                    cookieMap[cookie.name] = cookie.value;
-                }
-            });
-
-            const missingCookies = Object.entries(cookieMap)
-                .filter(([key, val]) => !val && ['cf_clearance', 'ASP.NET_SessionId'].includes(key)) // usrtkn might not always be there initially?
-                .map(([key]) => key);
-
-            if (missingCookies.length > 0) {
-                console.warn(`Warning: Missing critical cookies: ${missingCookies.join(', ')}`);
-            }
-
-            console.log('Cookies retrieved successfully.');
-            return cookieMap;
-
         } catch (error) {
-            console.error('Error in PlaywrightService:', error);
-            throw error;
-        } finally {
-            if (browser) await browser.close();
+            if (error instanceof DijidemiLoginError) {
+                throw error;
+            }
         }
+    }
+
+    private extractCookieMap(cookies: Awaited<ReturnType<BrowserContext['cookies']>>): CookieData {
+        const cookieMap: CookieData = {
+            cf_clearance: '',
+            'ASP.NET_SessionId': '',
+            usrtkn: '',
+            '.ASPXAUTH': '',
+        };
+
+        for (const cookie of cookies) {
+            if (cookie.name in cookieMap) {
+                cookieMap[cookie.name] = cookie.value;
+            }
+        }
+
+        return cookieMap;
+    }
+
+    private isTargetClosedError(error: unknown): boolean {
+        if (!(error instanceof Error)) return false;
+        return (
+            error.message.includes('Target page, context or browser has been closed')
+            || error.message.includes('Target closed')
+        );
+    }
+
+    private async isChallengePage(page: Page): Promise<boolean> {
+        const title = (await page.title().catch(() => '')).trim().toLowerCase();
+        const bodyText = (await page.locator('body').textContent().catch(() => null))?.trim().toLowerCase() || '';
+        const haystack = `${title}\n${bodyText}`;
+
+        return (
+            haystack.includes('just a moment')
+            || haystack.includes('bir dakika lütfen')
+            || haystack.includes('enable javascript and cookies to continue')
+            || haystack.includes('güvenlik doğrulaması gerçekleştirme')
+        );
+    }
+
+    private async readChallengeMessage(page: Page): Promise<string | null> {
+        const title = (await page.title().catch(() => '')).trim();
+        const bodyText = (await page.locator('body').textContent().catch(() => null))?.trim() || '';
+        if (!bodyText) return null;
+
+        const normalized = `${title}\n${bodyText}`.toLowerCase();
+        if (normalized.includes('just a moment') || normalized.includes('bir dakika lütfen')) {
+            return 'Cloudflare challenge sayfası geçilemedi.';
+        }
+        if (normalized.includes('enable javascript and cookies')) {
+            return 'Cloudflare challenge JavaScript/cookie doğrulamasını tamamlayamadı.';
+        }
+        if (normalized.includes('güvenlik doğrulaması gerçekleştirme')) {
+            return 'Cloudflare güvenlik doğrulaması korumalı sayfada tamamlanamadı.';
+        }
+
+        return null;
+    }
+
+    private async readLoginFailureMessage(page: Page): Promise<string | null> {
+        const selectors = [
+            '.validation-summary-errors',
+            '.alert-danger',
+            '.text-danger',
+            '#lblError',
+            '.login-error',
+        ];
+
+        for (const selector of selectors) {
+            const locator = page.locator(selector).first();
+            const isVisible = await locator.isVisible().catch(() => false);
+            if (!isVisible) continue;
+
+            const text = (await locator.textContent().catch(() => null))?.trim();
+            if (text) {
+                return text;
+            }
+        }
+
+        const bodyText = (await page.locator('body').textContent().catch(() => null))?.trim() || '';
+        if (!bodyText) return null;
+
+        const lowered = bodyText.toLowerCase();
+        if (
+            lowered.includes('hatalı')
+            || lowered.includes('yanlış')
+            || lowered.includes('geçersiz')
+            || lowered.includes('bulunamadı')
+        ) {
+            return 'Kullanıcı adı veya şifre hatalı.';
+        }
+
+        return null;
     }
 }
 

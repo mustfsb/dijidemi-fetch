@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import cookieManager from '@/lib/cookie/cookieManager';
-import { requireAuth, getClientIp } from '@/lib/auth';
+import {
+    requireAuth,
+    getClientIp,
+} from '@/lib/auth';
+import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
 import { RateLimits } from '@/lib/rate-limit';
 
 interface AssignmentTestResponse {
@@ -9,15 +12,28 @@ interface AssignmentTestResponse {
     error?: string;
 }
 
+const NUMERIC_ID_PATTERN = /^\d+$/;
+
+function parseNumericId(value: unknown, field: string): string | NextResponse<AssignmentTestResponse> {
+    if (typeof value !== 'string' && typeof value !== 'number') {
+        return NextResponse.json({ success: false, error: `${field} gerekli` }, { status: 400 });
+    }
+    const normalized = String(value).trim();
+    if (!normalized || normalized.length > 128 || !NUMERIC_ID_PATTERN.test(normalized)) {
+        return NextResponse.json({ success: false, error: `Geçersiz ${field}` }, { status: 400 });
+    }
+    return normalized;
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse<AssignmentTestResponse>> {
     try {
         // Auth check
-        const auth = requireAuth(request);
+        const auth = await requireAuth(request);
         if (auth instanceof NextResponse) return auth as NextResponse<AssignmentTestResponse>;
 
         // Rate limit
         const ip = getClientIp(request);
-        if (!RateLimits.GENERAL(ip, auth.userId)) {
+        if (!(await RateLimits.GENERAL(ip, auth.userId))) {
             return NextResponse.json({ success: false, error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
         }
 
@@ -27,32 +43,28 @@ export async function POST(request: NextRequest): Promise<NextResponse<Assignmen
         } catch {
             return NextResponse.json({ success: false, error: 'Geçersiz JSON gövdesi' }, { status: 400 });
         }
-        const { odevId } = body;
-
-        if (!odevId) {
-            return NextResponse.json({ success: false, error: 'Ödev ID gerekli' }, { status: 400 });
-        }
-        if (String(odevId).length > 128) {
-            return NextResponse.json({ success: false, error: 'Geçersiz Ödev ID' }, { status: 400 });
-        }
-
-        // Get auth headers
-        const authHeaders = await cookieManager.getHeaders();
-        const baseCookie = authHeaders['Cookie'] || '';
-        const fullCookie = `${baseCookie}; kullaniciId = 0; soruCevap = { "0": {} }`;
+        const odevId = parseNumericId(body.odevId, 'Ödev ID');
+        if (odevId instanceof NextResponse) return odevId;
 
         // Fetch the assignment page to get the TestId
-        const url = `https://www.dijidemi.com/Ogrenci/Odev?id=${odevId}`;
+        const url = new URL('https://www.dijidemi.com/Ogrenci/Odev');
+        url.searchParams.set('id', odevId);
 
-        const response = await fetch(url, {
+        const response = await requestDijidemiUpstream({
+            request,
+            userId: auth.userId,
+            url: url.toString(),
             method: 'GET',
             headers: {
-                'Cookie': fullCookie,
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Referer': 'https://www.dijidemi.com/Ogrenci',
             },
+            additionalCookies: {
+                kullaniciId: '0',
+                soruCevap: JSON.stringify({ 0: {} }),
+            },
+            referrer: 'https://www.dijidemi.com/Ogrenci',
         });
+        if (response instanceof NextResponse) return response as NextResponse<AssignmentTestResponse>;
 
         if (!response.ok) {
             return NextResponse.json({

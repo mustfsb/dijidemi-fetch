@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import cookieManager from '@/lib/cookie/cookieManager';
 import { createAdminClient } from '@/lib/supabase/server';
 import { supabase } from '@/lib/db/supabase';
 import { getClientIp } from '@/lib/auth';
+import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
 import { RateLimits } from '@/lib/rate-limit';
 
 type KttData = {
@@ -80,8 +80,7 @@ function extractAnswerKey(data: Record<string, unknown>): string {
     return '';
 }
 
-async function fetchKttData(testId: string, programId: string): Promise<KttData> {
-    const headers = await cookieManager.getHeaders();
+async function fetchKttData(request: NextRequest, testId: string, programId: string): Promise<KttData | NextResponse> {
     const base = 'https://www.dijidemi.com/MobilService/GetTestById';
 
     // Try same combinations as proxy, testTur=1 first (matches /api/proxy default)
@@ -98,12 +97,20 @@ async function fetchKttData(testId: string, programId: string): Promise<KttData>
     let bestAnswerKey = '';
 
     for (const url of urls) {
-        let response: Response;
+        let response;
         try {
-            response = await fetch(url, { method: 'GET', headers });
+            response = await requestDijidemiUpstream({
+                request,
+                url,
+                method: 'GET',
+            });
         } catch (err: any) {
             lastError = err.message;
             continue;
+        }
+
+        if (response instanceof NextResponse) {
+            return response;
         }
 
         if (!response.ok) {
@@ -233,7 +240,7 @@ export async function GET(request: NextRequest) {
     if (admin instanceof NextResponse) return admin;
 
     const ip = getClientIp(request);
-    if (!RateLimits.GENERAL(ip, admin.username)) {
+    if (!(await RateLimits.GENERAL(ip, admin.username))) {
         return NextResponse.json({ success: false, error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
     }
 
@@ -246,7 +253,8 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-        const ktt = await fetchKttData(testId, programId);
+        const ktt = await fetchKttData(request, testId, programId);
+        if (ktt instanceof NextResponse) return ktt;
         return NextResponse.json({
             success: true,
             testId: ktt.resolvedTestId,
@@ -265,7 +273,7 @@ export async function POST(request: NextRequest) {
     if (admin instanceof NextResponse) return admin;
 
     const ip = getClientIp(request);
-    if (!RateLimits.GENERAL(ip, admin.username)) {
+    if (!(await RateLimits.GENERAL(ip, admin.username))) {
         return NextResponse.json({ success: false, error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
     }
 
@@ -279,7 +287,8 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ success: false, error: 'Missing testId' }, { status: 400 });
         }
 
-        const ktt = await fetchKttData(testId, programId);
+        const ktt = await fetchKttData(request, testId, programId);
+        if (ktt instanceof NextResponse) return ktt;
 
         if (!save) {
             return NextResponse.json({

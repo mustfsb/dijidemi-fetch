@@ -1,468 +1,724 @@
 {
-  "startDate": "2026-01-10",
+  "startDate": "2026-02-23",
   "tasks": [
     {
-      "id": "pazartesi-paragraf-etap-2-159-164",
+      "id": "pazartesi-türkçe-çap-259-264",
       "day": "Pazartesi",
-      "subject": "Paragraf",
-      "name": "Etap-2",
-      "pageRange": "159-164",
+      "subject": "Türkçe",
+      "name": "ÇAP",
+      "pageRange": "259-264",
       "completed": false
     },
     {
-      "id": "pazartesi-tyt-fizik-etap-2-135-144",
+      "id": "pazartesi-türkçe-zami̇rler-",
       "day": "Pazartesi",
-      "subject": "TYT Fizik",
-      "name": "Etap-2",
-      "pageRange": "135-144",
+      "subject": "Türkçe",
+      "name": "ZAMİRLER",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "pazartesi-ayt-kimya-çap-165-174",
+      "id": "pazartesi-geo-üçgen-akademi̇-352-355",
       "day": "Pazartesi",
-      "subject": "AYT Kimya",
-      "name": "Çap",
-      "pageRange": "165-174",
+      "subject": "GEO",
+      "name": "ÜÇGEN AKADEMİ",
+      "pageRange": "352-355",
       "completed": false
     },
     {
-      "id": "pazartesi-tyt-biyoloji-etap-2-63-90",
+      "id": "pazartesi-tyt-mat-toprak-282-287",
       "day": "Pazartesi",
-      "subject": "TYT Biyoloji",
-      "name": "Etap-2",
-      "pageRange": "63-90",
+      "subject": "TYT MAT",
+      "name": "TOPRAK",
+      "pageRange": "282-287",
       "completed": false
     },
     {
-      "id": "pazartesi-ayt-biyoloji-etap-5-81-112",
+      "id": "pazartesi-tyt-mat-kümeler-",
       "day": "Pazartesi",
-      "subject": "AYT Biyoloji",
-      "name": "Etap-5",
-      "pageRange": "81-112",
+      "subject": "TYT MAT",
+      "name": "KÜMELER",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "pazartesi-coğrafya-apotemi-215-226",
+      "id": "pazartesi-ayt-mat-etap-4-161-166",
       "day": "Pazartesi",
-      "subject": "Coğrafya",
-      "name": "Apotemi",
-      "pageRange": "215-226",
+      "subject": "AYT MAT",
+      "name": "ETAP-4",
+      "pageRange": "161-166",
       "completed": false
     },
     {
-      "id": "salı-paragraf-etap-2-165-170",
+      "id": "pazartesi-tyt-ayt-fi̇zi̇k-ayt-toprak-254-259",
+      "day": "Pazartesi",
+      "subject": "TYT-AYT FİZİK",
+      "name": "AYT TOPRAK",
+      "pageRange": "254-259",
+      "completed": false
+    },
+    {
+      "id": "pazartesi-tyt-ayt-fi̇zi̇k-basi̇t-harmoni̇k-h.-",
+      "day": "Pazartesi",
+      "subject": "TYT-AYT FİZİK",
+      "name": "BASİT HARMONİK H.",
+      "pageRange": null,
+      "completed": false
+    },
+    {
+      "id": "pazartesi-tyt-ayt-ki̇mya-ayt-çap-243-250",
+      "day": "Pazartesi",
+      "subject": "TYT-AYT KİMYA",
+      "name": "AYT ÇAP",
+      "pageRange": "243-250",
+      "completed": false
+    },
+    {
+      "id": "pazartesi-tyt-ayt-ki̇mya-sulu-ç.-denge-",
+      "day": "Pazartesi",
+      "subject": "TYT-AYT KİMYA",
+      "name": "SULU Ç. DENGE",
+      "pageRange": null,
+      "completed": false
+    },
+    {
+      "id": "pazartesi-tyt-ayt-bi̇yo-ayt-palme-161-164",
+      "day": "Pazartesi",
+      "subject": "TYT-AYT BİYO",
+      "name": "AYT PALME",
+      "pageRange": "161-164",
+      "completed": false
+    },
+    {
+      "id": "pazartesi-tyt-ayt-bi̇yo-üri̇ner-si̇stem-",
+      "day": "Pazartesi",
+      "subject": "TYT-AYT BİYO",
+      "name": "ÜRİNER SİSTEM",
+      "pageRange": null,
+      "completed": false
+    },
+    {
+      "id": "salı-türkçe-etap-4-91-96",
       "day": "Salı",
-      "subject": "Paragraf",
-      "name": "Etap-2",
-      "pageRange": "165-170",
+      "subject": "Türkçe",
+      "name": "ETAP-4",
+      "pageRange": "91-96",
       "completed": false
     },
     {
-      "id": "salı-problem-toprak-214-215",
+      "id": "salı-türkçe-paragraf-",
       "day": "Salı",
-      "subject": "Problem",
-      "name": "Toprak",
-      "pageRange": "214-215",
+      "subject": "Türkçe",
+      "name": "PARAGRAF",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "salı-geometri-üçgen-akademi-222-225",
+      "id": "salı-geo-rasyonel-182-185",
       "day": "Salı",
-      "subject": "Geometri",
-      "name": "Üçgen Akademi",
-      "pageRange": "222-225",
+      "subject": "GEO",
+      "name": "RASYONEL",
+      "pageRange": "182-185",
       "completed": false
     },
     {
-      "id": "salı-ayt-matematik-ulti-174-191",
+      "id": "salı-tyt-mat-toprak-288-291",
       "day": "Salı",
-      "subject": "AYT Matematik",
-      "name": "Ulti",
-      "pageRange": "174-191",
+      "subject": "TYT MAT",
+      "name": "TOPRAK",
+      "pageRange": "288-291",
       "completed": false
     },
     {
-      "id": "salı-ayt-fizik-çap-112-119",
+      "id": "salı-tyt-mat-kümeler-",
       "day": "Salı",
-      "subject": "AYT Fizik",
-      "name": "Çap",
-      "pageRange": "112-119",
+      "subject": "TYT MAT",
+      "name": "KÜMELER",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "salı-tyt-kimya-toprak-207-217",
+      "id": "salı-ayt-mat-logari̇tma-tekrar-",
       "day": "Salı",
-      "subject": "TYT Kimya",
-      "name": "Toprak",
-      "pageRange": "207-217",
+      "subject": "AYT MAT",
+      "name": "LOGARİTMA TEKRAR",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "salı-ayt-biyoloji-etap-5-81-112",
+      "id": "salı-tyt-ayt-fi̇zi̇k-ayt-çap-133-140",
       "day": "Salı",
-      "subject": "AYT Biyoloji",
-      "name": "Etap-5",
-      "pageRange": "81-112",
+      "subject": "TYT-AYT FİZİK",
+      "name": "AYT ÇAP",
+      "pageRange": "133-140",
       "completed": false
     },
     {
-      "id": "salı-coğrafya-apotemi-215-226",
+      "id": "salı-tyt-ayt-fi̇zi̇k-elektri̇k-",
       "day": "Salı",
-      "subject": "Coğrafya",
-      "name": "Apotemi",
-      "pageRange": "215-226",
+      "subject": "TYT-AYT FİZİK",
+      "name": "ELEKTRİK",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "çarşamba-paragraf-etap-2-171-176",
+      "id": "salı-tyt-ayt-ki̇mya-etap-5-85-90",
+      "day": "Salı",
+      "subject": "TYT-AYT KİMYA",
+      "name": "ETAP-5",
+      "pageRange": "85-90",
+      "completed": false
+    },
+    {
+      "id": "salı-tyt-ayt-ki̇mya-ki̇mya-ve-elektri̇k-293-298",
+      "day": "Salı",
+      "subject": "TYT-AYT KİMYA",
+      "name": "KİMYA ve ELEKTRİK",
+      "pageRange": "293-298",
+      "completed": false
+    },
+    {
+      "id": "salı-tyt-ayt-bi̇yo-tyt-3-4-5-174-181",
+      "day": "Salı",
+      "subject": "TYT-AYT BİYO",
+      "name": "TYT 3-4-5",
+      "pageRange": "174-181",
+      "completed": false
+    },
+    {
+      "id": "salı-tyt-ayt-bi̇yo-kalitim-",
+      "day": "Salı",
+      "subject": "TYT-AYT BİYO",
+      "name": "KALITIM",
+      "pageRange": null,
+      "completed": false
+    },
+    {
+      "id": "salı-sosyal-apotemi̇-s..b.-267-270",
+      "day": "Salı",
+      "subject": "SOSYAL",
+      "name": "APOTEMİ S..B.",
+      "pageRange": "267-270",
+      "completed": false
+    },
+    {
+      "id": "salı-sosyal-si̇yaset-felsefesi̇-",
+      "day": "Salı",
+      "subject": "SOSYAL",
+      "name": "SİYASET FELSEFESİ",
+      "pageRange": null,
+      "completed": false
+    },
+    {
+      "id": "çarşamba-türkçe-etap-4-97-102",
       "day": "Çarşamba",
-      "subject": "Paragraf",
-      "name": "Etap-2",
-      "pageRange": "171-176",
+      "subject": "Türkçe",
+      "name": "ETAP-4",
+      "pageRange": "97-102",
       "completed": false
     },
     {
-      "id": "çarşamba-problem-toprak-216-217",
+      "id": "çarşamba-türkçe-paragraf-",
       "day": "Çarşamba",
-      "subject": "Problem",
-      "name": "Toprak",
-      "pageRange": "216-217",
+      "subject": "Türkçe",
+      "name": "PARAGRAF",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "çarşamba-geometri-üçgen-akademi-226-229",
+      "id": "çarşamba-geo-rasyonel-182-185",
       "day": "Çarşamba",
-      "subject": "Geometri",
-      "name": "Üçgen Akademi",
-      "pageRange": "226-229",
+      "subject": "GEO",
+      "name": "RASYONEL",
+      "pageRange": "182-185",
       "completed": false
     },
     {
-      "id": "çarşamba-tyt-matematik-etap-4-18-22",
+      "id": "çarşamba-tyt-mat-bi̇lgi̇-sarmal-problem-",
       "day": "Çarşamba",
-      "subject": "TYT Matematik",
-      "name": "Etap-4",
-      "pageRange": "18-22",
+      "subject": "TYT MAT",
+      "name": "BİLGİ SARMAL PROBLEM",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "çarşamba-tyt-fizik-toprak-230-233",
+      "id": "çarşamba-tyt-mat-kümeler-",
       "day": "Çarşamba",
-      "subject": "TYT Fizik",
-      "name": "Toprak",
-      "pageRange": "230-233",
+      "subject": "TYT MAT",
+      "name": "KÜMELER",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "çarşamba-ayt-fizik-çap-120-123",
+      "id": "çarşamba-ayt-mat-toprak-168-171",
       "day": "Çarşamba",
-      "subject": "AYT Fizik",
-      "name": "Çap",
-      "pageRange": "120-123",
+      "subject": "AYT MAT",
+      "name": "TOPRAK",
+      "pageRange": "168-171",
       "completed": false
     },
     {
-      "id": "çarşamba-ayt-kimya-çap-197-204",
+      "id": "çarşamba-tyt-ayt-fi̇zi̇k-ayt-çap-",
       "day": "Çarşamba",
-      "subject": "AYT Kimya",
-      "name": "Çap",
-      "pageRange": "197-204",
+      "subject": "TYT-AYT FİZİK",
+      "name": "AYT ÇAP",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "çarşamba-tyt-biyoloji-etap-2-91-98",
+      "id": "çarşamba-tyt-ayt-fi̇zi̇k-çembersel-hareket-",
       "day": "Çarşamba",
-      "subject": "TYT Biyoloji",
-      "name": "Etap-2",
-      "pageRange": "91-98",
+      "subject": "TYT-AYT FİZİK",
+      "name": "ÇEMBERSEL HAREKET",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "çarşamba-coğrafya-apotemi---eksik-tamamlayalım-117-214",
+      "id": "çarşamba-tyt-ayt-ki̇mya-ayt-çap-251-258",
       "day": "Çarşamba",
-      "subject": "Coğrafya",
-      "name": "Apotemi - Eksik Tamamlayalım",
-      "pageRange": "117-214",
+      "subject": "TYT-AYT KİMYA",
+      "name": "AYT ÇAP",
+      "pageRange": "251-258",
       "completed": false
     },
     {
-      "id": "perşembe-paragraf-oksijen---eksik-tamamlayalım-",
+      "id": "çarşamba-tyt-ayt-ki̇mya-sulu-ç.-denge-",
+      "day": "Çarşamba",
+      "subject": "TYT-AYT KİMYA",
+      "name": "SULU Ç. DENGE",
+      "pageRange": null,
+      "completed": false
+    },
+    {
+      "id": "çarşamba-tyt-ayt-bi̇yo-ayt-palme-165-168",
+      "day": "Çarşamba",
+      "subject": "TYT-AYT BİYO",
+      "name": "AYT PALME",
+      "pageRange": "165-168",
+      "completed": false
+    },
+    {
+      "id": "çarşamba-tyt-ayt-bi̇yo-üri̇ner-si̇stem-",
+      "day": "Çarşamba",
+      "subject": "TYT-AYT BİYO",
+      "name": "ÜRİNER SİSTEM",
+      "pageRange": null,
+      "completed": false
+    },
+    {
+      "id": "perşembe-türkçe-çap-117-126",
       "day": "Perşembe",
-      "subject": "Paragraf",
-      "name": "Oksijen - Eksik Tamamlayalım",
-      "pageRange": "",
+      "subject": "Türkçe",
+      "name": "ÇAP",
+      "pageRange": "117-126",
       "completed": false
     },
     {
-      "id": "perşembe-problem-toprak-217-219",
+      "id": "perşembe-türkçe-ana-düşünce-",
       "day": "Perşembe",
-      "subject": "Problem",
-      "name": "Toprak",
-      "pageRange": "217-219",
+      "subject": "Türkçe",
+      "name": "ANA DÜŞÜNCE",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "perşembe-geometri-üçgen-akademi-230-233",
+      "id": "perşembe-geo-rasyonel-",
       "day": "Perşembe",
-      "subject": "Geometri",
-      "name": "Üçgen Akademi",
-      "pageRange": "230-233",
+      "subject": "GEO",
+      "name": "RASYONEL",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "perşembe-ayt-matematik-toprak-126-153",
+      "id": "perşembe-tyt-mat-3d-215-218",
       "day": "Perşembe",
-      "subject": "AYT Matematik",
-      "name": "Toprak",
-      "pageRange": "126-153",
-      "completed": false
-    },
-    {
-      "id": "perşembe-tyt-fizik-çap-203-210",
-      "day": "Perşembe",
-      "subject": "TYT Fizik",
-      "name": "Çap",
-      "pageRange": "203-210",
-      "completed": false
-    },
-    {
-      "id": "perşembe-tyt-kimya-toprak-218-225",
-      "day": "Perşembe",
-      "subject": "TYT Kimya",
-      "name": "Toprak",
-      "pageRange": "218-225",
-      "completed": false
-    },
-    {
-      "id": "perşembe-tyt-biyoloji-etap-2-99-104",
-      "day": "Perşembe",
-      "subject": "TYT Biyoloji",
-      "name": "Etap-2",
-      "pageRange": "99-104",
-      "completed": false
-    },
-    {
-      "id": "perşembe-coğrafya-apotemi---eksik-tamamlayalım-117-214",
-      "day": "Perşembe",
-      "subject": "Coğrafya",
-      "name": "Apotemi - Eksik Tamamlayalım",
-      "pageRange": "117-214",
-      "completed": false
-    },
-    {
-      "id": "cuma-paragraf-oksijen---eksik-tamamlayalım-",
-      "day": "Cuma",
-      "subject": "Paragraf",
-      "name": "Oksijen - Eksik Tamamlayalım",
-      "pageRange": "",
-      "completed": false
-    },
-    {
-      "id": "cuma-geometri-üçgen-akademi-234-238",
-      "day": "Cuma",
-      "subject": "Geometri",
-      "name": "Üçgen Akademi",
-      "pageRange": "234-238",
-      "completed": false
-    },
-    {
-      "id": "cuma-tyt-fizik-çap-211-216",
-      "day": "Cuma",
-      "subject": "TYT Fizik",
-      "name": "Çap",
-      "pageRange": "211-216",
-      "completed": false
-    },
-    {
-      "id": "cuma-ayt-fizik-ktt-anali̇z-",
-      "day": "Cuma",
-      "subject": "AYT Fizik",
-      "name": "KTT ANALİZ",
-      "pageRange": "",
-      "completed": false
-    },
-    {
-      "id": "cuma-tyt-kimya-toprak-226-235",
-      "day": "Cuma",
-      "subject": "TYT Kimya",
-      "name": "Toprak",
-      "pageRange": "226-235",
-      "completed": false
-    },
-    {
-      "id": "cuma-ayt-biyoloji-bağışıklık-sistemi-etap-özet-",
-      "day": "Cuma",
-      "subject": "AYT Biyoloji",
-      "name": "Bağışıklık Sistemi Etap Özet",
-      "pageRange": "",
-      "completed": false
-    },
-    {
-      "id": "cuma-coğrafya-apotemi---eksik-tamamlayalım-117-214",
-      "day": "Cuma",
-      "subject": "Coğrafya",
-      "name": "Apotemi - Eksik Tamamlayalım",
-      "pageRange": "117-214",
-      "completed": false
-    },
-    {
-      "id": "cumartesi-paragraf-etap-2-145-152",
-      "day": "Cumartesi",
-      "subject": "Paragraf",
-      "name": "Etap-2",
-      "pageRange": "145-152",
-      "completed": false
-    },
-    {
-      "id": "cumartesi-dil-bilgisi-ktt-anali̇z-",
-      "day": "Cumartesi",
-      "subject": "Dil Bilgisi",
-      "name": "KTT ANALİZ",
-      "pageRange": "",
-      "completed": false
-    },
-    {
-      "id": "cumartesi-problem-3d-171-174",
-      "day": "Cumartesi",
-      "subject": "Problem",
+      "subject": "TYT MAT",
       "name": "3D",
-      "pageRange": "171-174",
+      "pageRange": "215-218",
       "completed": false
     },
     {
-      "id": "cumartesi-geometri-üçgen-akademi-212-217",
-      "day": "Cumartesi",
-      "subject": "Geometri",
-      "name": "Üçgen Akademi",
-      "pageRange": "212-217",
+      "id": "perşembe-tyt-mat-kümeler-",
+      "day": "Perşembe",
+      "subject": "TYT MAT",
+      "name": "KÜMELER",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "cumartesi-tyt-matematik-3d-&-toprak-93-96,-118-119",
-      "day": "Cumartesi",
-      "subject": "TYT Matematik",
-      "name": "3D & Toprak",
-      "pageRange": "93-96, 118-119",
+      "id": "perşembe-ayt-mat-li̇mi̇t-tekrar-etap-",
+      "day": "Perşembe",
+      "subject": "AYT MAT",
+      "name": "LİMİT TEKRAR ETAP",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "cumartesi-ayt-matematik-ulti-166-173",
-      "day": "Cumartesi",
-      "subject": "AYT Matematik",
-      "name": "Ulti",
+      "id": "perşembe-tyt-ayt-fi̇zi̇k-tyt-çap-166-173",
+      "day": "Perşembe",
+      "subject": "TYT-AYT FİZİK",
+      "name": "TYT ÇAP",
       "pageRange": "166-173",
       "completed": false
     },
     {
-      "id": "cumartesi-ayt-fizik-çap-96-103",
-      "day": "Cumartesi",
-      "subject": "AYT Fizik",
-      "name": "Çap",
-      "pageRange": "96-103",
+      "id": "perşembe-tyt-ayt-fi̇zi̇k-elektri̇k-",
+      "day": "Perşembe",
+      "subject": "TYT-AYT FİZİK",
+      "name": "ELEKTRİK",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "cumartesi-ayt-kimya-toprak-140-147",
-      "day": "Cumartesi",
-      "subject": "AYT Kimya",
-      "name": "Toprak",
-      "pageRange": "140-147",
+      "id": "perşembe-tyt-ayt-ki̇mya-ayt-çap-299-302",
+      "day": "Perşembe",
+      "subject": "TYT-AYT KİMYA",
+      "name": "AYT ÇAP",
+      "pageRange": "299-302",
       "completed": false
     },
     {
-      "id": "cumartesi-tyt-biyoloji-palme-147-156",
-      "day": "Cumartesi",
-      "subject": "TYT Biyoloji",
-      "name": "Palme",
-      "pageRange": "147-156",
+      "id": "perşembe-tyt-ayt-ki̇mya-ki̇mya-ve-elektri̇k-",
+      "day": "Perşembe",
+      "subject": "TYT-AYT KİMYA",
+      "name": "KİMYA ve ELEKTRİK",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "cumartesi-ayt-biyoloji-dolaşım-sistemi-etap-özet-",
-      "day": "Cumartesi",
-      "subject": "AYT Biyoloji",
-      "name": "Dolaşım Sistemi Etap Özet",
-      "pageRange": "",
+      "id": "perşembe-tyt-ayt-bi̇yo-tyt-3-4-5-",
+      "day": "Perşembe",
+      "subject": "TYT-AYT BİYO",
+      "name": "TYT 3-4-5",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "cumartesi-coğrafya-apotemi-121-126",
-      "day": "Cumartesi",
-      "subject": "Coğrafya",
-      "name": "Apotemi",
-      "pageRange": "121-126",
+      "id": "perşembe-tyt-ayt-bi̇yo-kalitim-",
+      "day": "Perşembe",
+      "subject": "TYT-AYT BİYO",
+      "name": "KALITIM",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "pazar-paragraf-etap-2-153-158",
-      "day": "Pazar",
-      "subject": "Paragraf",
-      "name": "Etap-2",
-      "pageRange": "153-158",
+      "id": "perşembe-sosyal-apotemi̇-s..b.-271-274",
+      "day": "Perşembe",
+      "subject": "SOSYAL",
+      "name": "APOTEMİ S..B.",
+      "pageRange": "271-274",
       "completed": false
     },
     {
-      "id": "pazar-problem-3d-175-180",
-      "day": "Pazar",
-      "subject": "Problem",
+      "id": "perşembe-sosyal-si̇yaset-felsefesi̇-",
+      "day": "Perşembe",
+      "subject": "SOSYAL",
+      "name": "SİYASET FELSEFESİ",
+      "pageRange": null,
+      "completed": false
+    },
+    {
+      "id": "cuma-türkçe-çap-127-134",
+      "day": "Cuma",
+      "subject": "Türkçe",
+      "name": "ÇAP",
+      "pageRange": "127-134",
+      "completed": false
+    },
+    {
+      "id": "cuma-türkçe-ana-düşünce-",
+      "day": "Cuma",
+      "subject": "Türkçe",
+      "name": "ANA DÜŞÜNCE",
+      "pageRange": null,
+      "completed": false
+    },
+    {
+      "id": "cuma-geo-rasyonel-186-189",
+      "day": "Cuma",
+      "subject": "GEO",
+      "name": "RASYONEL",
+      "pageRange": "186-189",
+      "completed": false
+    },
+    {
+      "id": "cuma-tyt-mat-3d-219-224",
+      "day": "Cuma",
+      "subject": "TYT MAT",
       "name": "3D",
-      "pageRange": "175-180",
+      "pageRange": "219-224",
       "completed": false
     },
     {
-      "id": "pazar-geometri-üçgen-akademi-218-221",
-      "day": "Pazar",
-      "subject": "Geometri",
-      "name": "Üçgen Akademi",
-      "pageRange": "218-221",
+      "id": "cuma-tyt-mat-kümeler-",
+      "day": "Cuma",
+      "subject": "TYT MAT",
+      "name": "KÜMELER",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "pazar-tyt-matematik-ktt-anali̇z-",
-      "day": "Pazar",
-      "subject": "TYT Matematik",
-      "name": "KTT ANALİZ",
-      "pageRange": "",
+      "id": "cuma-ayt-mat-toprak-172-175",
+      "day": "Cuma",
+      "subject": "AYT MAT",
+      "name": "TOPRAK",
+      "pageRange": "172-175",
       "completed": false
     },
     {
-      "id": "pazar-ayt-fizik-çap-104-111",
-      "day": "Pazar",
-      "subject": "AYT Fizik",
-      "name": "Çap",
-      "pageRange": "104-111",
+      "id": "cuma-tyt-ayt-fi̇zi̇k-tyt-çap-174-181",
+      "day": "Cuma",
+      "subject": "TYT-AYT FİZİK",
+      "name": "TYT ÇAP",
+      "pageRange": "174-181",
       "completed": false
     },
     {
-      "id": "pazar-ayt-kimya-toprak-150-157",
-      "day": "Pazar",
-      "subject": "AYT Kimya",
-      "name": "Toprak",
-      "pageRange": "150-157",
+      "id": "cuma-tyt-ayt-fi̇zi̇k-elektri̇k-",
+      "day": "Cuma",
+      "subject": "TYT-AYT FİZİK",
+      "name": "ELEKTRİK",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "pazar-tyt-biyoloji-etap-2-57-62",
-      "day": "Pazar",
-      "subject": "TYT Biyoloji",
-      "name": "Etap-2",
-      "pageRange": "57-62",
+      "id": "cuma-tyt-ayt-ki̇mya-ayt-çap-259-266",
+      "day": "Cuma",
+      "subject": "TYT-AYT KİMYA",
+      "name": "AYT ÇAP",
+      "pageRange": "259-266",
       "completed": false
     },
     {
-      "id": "pazar-ayt-biyoloji-ktt-anali̇z-",
-      "day": "Pazar",
-      "subject": "AYT Biyoloji",
-      "name": "KTT ANALİZ",
-      "pageRange": "",
+      "id": "cuma-tyt-ayt-ki̇mya-sulu-ç.-denge-",
+      "day": "Cuma",
+      "subject": "TYT-AYT KİMYA",
+      "name": "SULU Ç. DENGE",
+      "pageRange": null,
       "completed": false
     },
     {
-      "id": "pazar-coğrafya-apotemi-121-126",
+      "id": "cuma-tyt-ayt-bi̇yo-ayt-palme-169-172",
+      "day": "Cuma",
+      "subject": "TYT-AYT BİYO",
+      "name": "AYT PALME",
+      "pageRange": "169-172",
+      "completed": false
+    },
+    {
+      "id": "cuma-tyt-ayt-bi̇yo-üri̇ner-si̇stem-",
+      "day": "Cuma",
+      "subject": "TYT-AYT BİYO",
+      "name": "ÜRİNER SİSTEM",
+      "pageRange": null,
+      "completed": false
+    },
+    {
+      "id": "cumartesi-türkçe-etap-4-13-14]-[35-38",
+      "day": "Cumartesi",
+      "subject": "Türkçe",
+      "name": "ETAP-4",
+      "pageRange": "13-14]-[35-38",
+      "completed": false
+    },
+    {
+      "id": "cumartesi-türkçe-i̇si̇mler-zami̇rler-",
+      "day": "Cumartesi",
+      "subject": "Türkçe",
+      "name": "İSİMLER ZAMİRLER",
+      "pageRange": null,
+      "completed": false
+    },
+    {
+      "id": "cumartesi-geo-rasyonel-300-307",
+      "day": "Cumartesi",
+      "subject": "GEO",
+      "name": "RASYONEL",
+      "pageRange": "300-307",
+      "completed": false
+    },
+    {
+      "id": "cumartesi-tyt-mat-etap-7-63-68",
+      "day": "Cumartesi",
+      "subject": "TYT MAT",
+      "name": "ETAP-7",
+      "pageRange": "63-68",
+      "completed": false
+    },
+    {
+      "id": "cumartesi-tyt-mat-kümeler-",
+      "day": "Cumartesi",
+      "subject": "TYT MAT",
+      "name": "KÜMELER",
+      "pageRange": null,
+      "completed": false
+    },
+    {
+      "id": "cumartesi-ayt-mat-etap-4-143-150",
+      "day": "Cumartesi",
+      "subject": "AYT MAT",
+      "name": "ETAP-4",
+      "pageRange": "143-150",
+      "completed": false
+    },
+    {
+      "id": "cumartesi-tyt-ayt-fi̇zi̇k-ayt-toprak-248-253",
+      "day": "Cumartesi",
+      "subject": "TYT-AYT FİZİK",
+      "name": "AYT TOPRAK",
+      "pageRange": "248-253",
+      "completed": false
+    },
+    {
+      "id": "cumartesi-tyt-ayt-fi̇zi̇k-basi̇t-harmoni̇k-h.-",
+      "day": "Cumartesi",
+      "subject": "TYT-AYT FİZİK",
+      "name": "BASİT HARMONİK H.",
+      "pageRange": null,
+      "completed": false
+    },
+    {
+      "id": "cumartesi-tyt-ayt-ki̇mya-ayt-çap-235-242",
+      "day": "Cumartesi",
+      "subject": "TYT-AYT KİMYA",
+      "name": "AYT ÇAP",
+      "pageRange": "235-242",
+      "completed": false
+    },
+    {
+      "id": "cumartesi-tyt-ayt-ki̇mya-sulu-ç.-denge-",
+      "day": "Cumartesi",
+      "subject": "TYT-AYT KİMYA",
+      "name": "SULU Ç. DENGE",
+      "pageRange": null,
+      "completed": false
+    },
+    {
+      "id": "cumartesi-tyt-ayt-bi̇yo-ayt-palme-155-160",
+      "day": "Cumartesi",
+      "subject": "TYT-AYT BİYO",
+      "name": "AYT PALME",
+      "pageRange": "155-160",
+      "completed": false
+    },
+    {
+      "id": "cumartesi-tyt-ayt-bi̇yo-üri̇ner-si̇stem-",
+      "day": "Cumartesi",
+      "subject": "TYT-AYT BİYO",
+      "name": "ÜRİNER SİSTEM",
+      "pageRange": null,
+      "completed": false
+    },
+    {
+      "id": "cumartesi-sosyal-apotemi̇-s..b.-263-266",
+      "day": "Cumartesi",
+      "subject": "SOSYAL",
+      "name": "APOTEMİ S..B.",
+      "pageRange": "263-266",
+      "completed": false
+    },
+    {
+      "id": "cumartesi-sosyal-di̇n-felsefesi̇-",
+      "day": "Cumartesi",
+      "subject": "SOSYAL",
+      "name": "DİN FELSEFESİ",
+      "pageRange": null,
+      "completed": false
+    },
+    {
+      "id": "pazar-türkçe-etap-4-83-90",
       "day": "Pazar",
-      "subject": "Coğrafya",
-      "name": "Apotemi",
-      "pageRange": "121-126",
+      "subject": "Türkçe",
+      "name": "ETAP-4",
+      "pageRange": "83-90",
+      "completed": false
+    },
+    {
+      "id": "pazar-türkçe-paragraf-",
+      "day": "Pazar",
+      "subject": "Türkçe",
+      "name": "PARAGRAF",
+      "pageRange": null,
+      "completed": false
+    },
+    {
+      "id": "pazar-geo-üçgen-akademi̇-348-351",
+      "day": "Pazar",
+      "subject": "GEO",
+      "name": "ÜÇGEN AKADEMİ",
+      "pageRange": "348-351",
+      "completed": false
+    },
+    {
+      "id": "pazar-tyt-mat-etap-7-69-74",
+      "day": "Pazar",
+      "subject": "TYT MAT",
+      "name": "ETAP-7",
+      "pageRange": "69-74",
+      "completed": false
+    },
+    {
+      "id": "pazar-tyt-mat-kümeler-",
+      "day": "Pazar",
+      "subject": "TYT MAT",
+      "name": "KÜMELER",
+      "pageRange": null,
+      "completed": false
+    },
+    {
+      "id": "pazar-ayt-mat-etap-4-151-160",
+      "day": "Pazar",
+      "subject": "AYT MAT",
+      "name": "ETAP-4",
+      "pageRange": "151-160",
+      "completed": false
+    },
+    {
+      "id": "pazar-tyt-ayt-fi̇zi̇k-etap-5-79-84",
+      "day": "Pazar",
+      "subject": "TYT-AYT FİZİK",
+      "name": "ETAP-5",
+      "pageRange": "79-84",
+      "completed": false
+    },
+    {
+      "id": "pazar-tyt-ayt-fi̇zi̇k-elektri̇k-",
+      "day": "Pazar",
+      "subject": "TYT-AYT FİZİK",
+      "name": "ELEKTRİK",
+      "pageRange": null,
+      "completed": false
+    },
+    {
+      "id": "pazar-tyt-ayt-ki̇mya-ayt-çap-285-292",
+      "day": "Pazar",
+      "subject": "TYT-AYT KİMYA",
+      "name": "AYT ÇAP",
+      "pageRange": "285-292",
+      "completed": false
+    },
+    {
+      "id": "pazar-tyt-ayt-ki̇mya-ki̇mya-ve-elektri̇k-",
+      "day": "Pazar",
+      "subject": "TYT-AYT KİMYA",
+      "name": "KİMYA ve ELEKTRİK",
+      "pageRange": null,
+      "completed": false
+    },
+    {
+      "id": "pazar-tyt-ayt-bi̇yo-tyt-palme-193-202",
+      "day": "Pazar",
+      "subject": "TYT-AYT BİYO",
+      "name": "TYT PALME",
+      "pageRange": "193-202",
+      "completed": false
+    },
+    {
+      "id": "pazar-tyt-ayt-bi̇yo-kalitim-",
+      "day": "Pazar",
+      "subject": "TYT-AYT BİYO",
+      "name": "KALITIM",
+      "pageRange": null,
       "completed": false
     }
   ]

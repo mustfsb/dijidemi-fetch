@@ -1,40 +1,66 @@
 import { NextRequest, NextResponse } from 'next/server';
-import cookieManager from '@/lib/cookie/cookieManager';
-import { requireAuth, getClientIp } from '@/lib/auth';
+import {
+    requireAuth,
+    getClientIp,
+} from '@/lib/auth';
+import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
+import { verifyPrivateTestApiRequest } from '@/lib/private-test/device-gate';
 import { RateLimits } from '@/lib/rate-limit';
+
+const NUMERIC_ID_PATTERN = /^\d+$/;
+
+function parseNumericParam(value: string | null, field: string): string | NextResponse {
+    const normalized = value?.trim() || '';
+    if (!normalized || !NUMERIC_ID_PATTERN.test(normalized)) {
+        return NextResponse.json({ error: `Invalid ${field}` }, { status: 400 });
+    }
+    return normalized;
+}
 
 export async function GET(request: NextRequest) {
     // Auth check
-    const auth = requireAuth(request);
+    const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
+
+    const deviceGate = await verifyPrivateTestApiRequest(request, auth.userId);
+    if (deviceGate.status !== 'ok') {
+        return NextResponse.json({ error: 'device_not_bound' }, { status: 403 });
+    }
 
     // Rate limit
     const ip = getClientIp(request);
-    if (!RateLimits.GENERAL(ip, auth.userId)) {
+    if (!(await RateLimits.GENERAL(ip, auth.userId))) {
         return NextResponse.json({ error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
     }
 
     const { searchParams } = new URL(request.url);
-    const testId = searchParams.get('testId');
-    const soruId = searchParams.get('soruId');
+    const testId = parseNumericParam(searchParams.get('testId'), 'testId');
+    if (testId instanceof NextResponse) return testId;
+    const soruId = parseNumericParam(searchParams.get('soruId'), 'soruId');
+    if (soruId instanceof NextResponse) return soruId;
 
-    if (!testId || !soruId) {
-        return NextResponse.json({ error: 'Missing testId or soruId' }, { status: 400 });
-    }
-
-    const headers = await cookieManager.getHeaders();
     const url = 'https://www.dijidemi.com/Ogrenci2020/Video?___layout';
-    const body = `tur=2&sinavId=0&sinavTuru=2&testId=${testId}&soruId=${soruId}`;
+    const body = new URLSearchParams({
+        tur: '2',
+        sinavId: '0',
+        sinavTuru: '2',
+        testId,
+        soruId,
+    }).toString();
 
     try {
-        const response = await fetch(url, {
+        const response = await requestDijidemiUpstream({
+            request,
+            userId: auth.userId,
+            url,
             method: 'POST',
             headers: {
-                ...headers,
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
             },
             body,
+            referrer: 'https://www.dijidemi.com/Ogrenci2020',
         });
+        if (response instanceof NextResponse) return response;
 
         if (!response.ok) {
             return NextResponse.json({ error: `Upstream error: ${response.status}` }, { status: response.status });

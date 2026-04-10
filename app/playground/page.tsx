@@ -1,14 +1,15 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import QuestionSidebar from "@/components/playground/QuestionSidebar";
 import ChatInterface from "@/components/playground/ChatInterface";
 import HistoryPanel from "@/components/playground/HistoryPanel";
 import { toast } from "sonner";
-import { Menu, X, ArrowLeft, Sparkles } from "lucide-react";
+import { ArrowLeft, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { authFetch } from "@/lib/tokenManager";
+import { useStreamingChat } from "@/app/hooks/useStreamingChat";
 
 interface SelectedQuestion {
   id: string;
@@ -36,8 +37,9 @@ export default function PlaygroundPage() {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [historyUpdateTrigger, setHistoryUpdateTrigger] = useState(0);
   const [optimisticHistoryItem, setOptimisticHistoryItem] = useState<{
     id: string;
@@ -48,25 +50,36 @@ export default function PlaygroundPage() {
     created_at: string;
   } | null>(null);
 
-  // Handle hydration - only render after mount
+  // Panel collapse state
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(true);
+  const [mobileDrawer, setMobileDrawer] = useState<'sidebar' | 'history' | null>(null);
+
+  const { startStream, abort: abortStream } = useStreamingChat();
+  const streamingContentRef = useRef('');
+
+  // Handle hydration
   useEffect(() => {
     setMounted(true);
+    // Set panel defaults based on viewport
+    const isTablet = window.innerWidth < 1200;
+    if (isTablet) {
+      setSidebarOpen(false);
+      setHistoryOpen(false);
+    }
   }, []);
 
-  // Initialize user ID after mount (client-side only)
+  // Initialize user ID after mount
   useEffect(() => {
     if (!mounted) return;
 
-    // Check and load auto-selected questions from session storage
     try {
       const storedSelection = sessionStorage.getItem('playground_auto_select');
       if (storedSelection) {
         const parsed = JSON.parse(storedSelection);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Initial load
           setSelectedQuestions(parsed);
 
-          // Check for missing images and resolve them in parallel
           const resolveImages = async () => {
             const newQuestions = [...parsed];
             const resolvePromises: Promise<void>[] = [];
@@ -78,15 +91,12 @@ export default function PlaygroundPage() {
                   (async () => {
                     try {
                       const parts = q.id.split('-q');
-                      const testId = parts[0];
-                      const questionNumber = parts[1];
-
                       const res = await authFetch('/api/playground/resolve-image', {
                         method: 'POST',
                         body: JSON.stringify({
                           bookId: q.bookId,
-                          testId: testId,
-                          questionNumber: questionNumber
+                          testId: parts[0],
+                          questionNumber: parts[1]
                         })
                       });
                       const data = await res.json();
@@ -115,18 +125,15 @@ export default function PlaygroundPage() {
       console.error("Failed to parse playground auto-select", e);
     }
 
-    // Check key from main auth first
     const authUuid = localStorage.getItem('user_uuid');
-    const storedUsername = localStorage.getItem('playground_username') || localStorage.getItem('username'); // Check both keys
+    const storedUsername = localStorage.getItem('playground_username') || localStorage.getItem('username');
 
     if (storedUsername) {
       setUserId(storedUsername);
-      localStorage.setItem("playground_user_id", storedUsername); // Sync local preference
-      console.log("Playground: Using Username as ID:", storedUsername);
+      localStorage.setItem("playground_user_id", storedUsername);
     } else if (authUuid) {
       setUserId(authUuid);
       localStorage.setItem("playground_user_id", authUuid);
-      console.log("Playground: Using UUID as ID:", authUuid);
     } else {
       let storedUserId = localStorage.getItem("playground_user_id");
       if (!storedUserId) {
@@ -134,7 +141,6 @@ export default function PlaygroundPage() {
         localStorage.setItem("playground_user_id", storedUserId);
       }
       setUserId(storedUserId);
-      console.log("Playground: Using Generated/Stored ID:", storedUserId);
     }
   }, [mounted]);
 
@@ -147,7 +153,6 @@ export default function PlaygroundPage() {
       if (data.messages && Array.isArray(data.messages) && data.messages.length > 0) {
         setMessages(data.messages);
       } else {
-        // Fallback for old single-turn rows
         const msgs: Message[] = [
           {
             id: `${data.id}-user`,
@@ -164,11 +169,6 @@ export default function PlaygroundPage() {
     }
   }, []);
 
-  // Debugging playground state
-  useEffect(() => {
-    console.log("Playground Page Mounted. User ID:", userId);
-  }, [userId]);
-
   const saveToHistory = async (
     sessionId: string | null,
     messagesToSave: Message[],
@@ -176,7 +176,6 @@ export default function PlaygroundPage() {
     currentQuestions: SelectedQuestion[],
     aiResponse?: string
   ): Promise<string | null> => {
-    // 1. Validate User
     const storedUser = localStorage.getItem('playground_username') || localStorage.getItem('username') || localStorage.getItem('user_uuid');
     const currentUserId = storedUser || userId;
 
@@ -185,7 +184,6 @@ export default function PlaygroundPage() {
       return sessionId;
     }
 
-    // 2. Prepare Payload
     const questionIds = currentQuestions.map(q => q.id).join(',');
     const imageUrls = currentQuestions.map(q => q.imageUrl).filter(Boolean).join(',');
     const firstTitle = currentQuestions.length > 0 ? currentQuestions[0].title : (userPrompt || "Yeni Görüşme");
@@ -211,7 +209,6 @@ export default function PlaygroundPage() {
       sender: aiResponse ? 'assistant' : 'user'
     };
 
-    // Optimistic UI for new sessions
     if (!sessionId || sessionId.startsWith('temp_')) {
       const tempId = sessionId || `temp_${Date.now()}`;
       setOptimisticHistoryItem({
@@ -227,13 +224,9 @@ export default function PlaygroundPage() {
 
     try {
       if (sessionId && !sessionId.startsWith('temp_')) {
-        // UPDATE path
         const res = await authFetch('/api/playground/history', {
           method: 'PATCH',
-          body: JSON.stringify({
-            id: sessionId,
-            ...payload,
-          })
+          body: JSON.stringify({ id: sessionId, ...payload })
         });
         const data = await res.json();
         if (!res.ok || !data.success) {
@@ -241,7 +234,6 @@ export default function PlaygroundPage() {
         }
         return sessionId;
       } else {
-        // INSERT path
         const res = await authFetch('/api/playground/history', {
           method: 'POST',
           body: JSON.stringify(payload),
@@ -253,7 +245,7 @@ export default function PlaygroundPage() {
         }
 
         if (data.session) {
-          setOptimisticHistoryItem(null); // Clear once real data is in
+          setOptimisticHistoryItem(null);
           return data.session.id;
         }
       }
@@ -263,7 +255,6 @@ export default function PlaygroundPage() {
     return sessionId;
   };
 
-  // Load messages when session changes
   useEffect(() => {
     if (currentSessionId) {
       loadSessionMessages(currentSessionId);
@@ -287,12 +278,11 @@ export default function PlaygroundPage() {
       newQuestions = [...prev, { id, title, imageUrl, bookId }];
     }
     updateSelectedQuestions(newQuestions);
-    setSidebarOpen(false); // Close mobile drawer
+    setMobileDrawer(null);
   };
 
   const handleRemoveQuestion = (id: string) => {
-    const newQuestions = selectedQuestions.filter(q => q.id !== id);
-    updateSelectedQuestions(newQuestions);
+    updateSelectedQuestions(selectedQuestions.filter(q => q.id !== id));
   };
 
   const handleClearAllQuestions = () => {
@@ -300,7 +290,6 @@ export default function PlaygroundPage() {
   };
 
   const handleSendMessage = async (content: string) => {
-    // Re-verify ID before sending
     const activeUser = localStorage.getItem('playground_username') || localStorage.getItem('username') || localStorage.getItem('user_uuid') || userId;
 
     if (!activeUser) {
@@ -311,7 +300,7 @@ export default function PlaygroundPage() {
     setIsLoading(true);
     const finalContent = content.trim() || "Bu soruyu açıkla.";
 
-    // 1. Resolve Images (Restored)
+    // 1. Resolve Images
     let currentQuestions = [...selectedQuestions];
     const questionsToResolve = currentQuestions.map((q, index) => ({ q, index }))
       .filter(({ q }) => !q.imageUrl && q.bookId && q.id.includes('-q'));
@@ -341,7 +330,7 @@ export default function PlaygroundPage() {
       role: "user",
       content: finalContent,
       metadata: {
-        questionImageUrls: immediateImageUrls, // Restored
+        questionImageUrls: immediateImageUrls,
         questionIds: currentQuestions.map(q => q.id),
         timestamp: new Date().toISOString()
       }
@@ -350,7 +339,7 @@ export default function PlaygroundPage() {
     const updatedMessages = [...messages, userMsg];
     setMessages(updatedMessages);
 
-    // 3. Initial Save (Ensures record exists in DB)
+    // 3. Initial Save
     const activeSessionId = await saveToHistory(
       currentSessionId,
       updatedMessages,
@@ -361,56 +350,91 @@ export default function PlaygroundPage() {
     if (activeSessionId && activeSessionId !== currentSessionId) {
       setCurrentSessionId(activeSessionId);
     }
-    // Note: Don't trigger history refresh here — wait until AI response is saved (below)
 
-    // 4. AI Request
+    // 4. Create placeholder AI message and start streaming
+    const aiMsgId = `ai_${Date.now()}`;
+    const placeholderAiMsg: Message = {
+      id: aiMsgId,
+      role: "model",
+      content: "",
+      metadata: { timestamp: new Date().toISOString() }
+    };
+
+    const messagesWithPlaceholder = [...updatedMessages, placeholderAiMsg];
+    setMessages(messagesWithPlaceholder);
+    setIsStreaming(true);
+    setStreamingMessageId(aiMsgId);
+    setIsLoading(false);
+    streamingContentRef.current = '';
+
     try {
-      const response = await authFetch("/api/playground/chat", {
-        method: "POST",
-        body: JSON.stringify({
+      await startStream(
+        '/api/playground/chat',
+        {
           message: finalContent,
           history: updatedMessages,
           context: currentQuestions.map(q => ({ id: q.id, title: q.title, imageUrl: q.imageUrl, bookId: q.bookId })),
           imageUrl: immediateImageUrls[0],
           imageUrls: immediateImageUrls
-        }),
-      });
+        },
+        {
+          onMeta: (meta) => {
+            // Could update resolved image URLs if needed
+          },
+          onToken: (token) => {
+            streamingContentRef.current += token;
+            const currentContent = streamingContentRef.current;
+            setMessages(prev => prev.map(m =>
+              m.id === aiMsgId ? { ...m, content: currentContent } : m
+            ));
+          },
+          onDone: async (fullText) => {
+            setIsStreaming(false);
+            setStreamingMessageId(null);
 
-      const data = await response.json();
-      if (!data.success) throw new Error(data.error || "AI Response failed");
+            // Update message with final text
+            setMessages(prev => {
+              const final = prev.map(m =>
+                m.id === aiMsgId ? { ...m, content: fullText } : m
+              );
 
-      // 5. Create AI Message
-      const aiMsg: Message = {
-        id: `ai_${Date.now()}`,
-        role: "model",
-        content: data.reply,
-        metadata: { timestamp: new Date().toISOString() }
-      };
+              // Save to history with full AI response
+              const sessionIdToUse = activeSessionId || currentSessionId;
+              saveToHistory(
+                sessionIdToUse,
+                final,
+                finalContent,
+                currentQuestions,
+                fullText
+              ).then(finalSessionId => {
+                if (finalSessionId && finalSessionId !== currentSessionId) {
+                  setCurrentSessionId(finalSessionId);
+                }
+                setHistoryUpdateTrigger(Date.now());
+                setOptimisticHistoryItem(null);
+              });
 
-      const sessionWithAi = [...updatedMessages, aiMsg];
-      setMessages(sessionWithAi);
+              return final;
+            });
+          },
+          onError: (error) => {
+            setIsStreaming(false);
+            setStreamingMessageId(null);
+            toast.error(`Hata: ${error}`);
 
-      // 6. FINAL PERSISTENT SAVE (User + AI + Context)
-      const finalSessionId = await saveToHistory(
-        activeSessionId,
-        sessionWithAi,
-        finalContent,
-        currentQuestions,
-        data.reply
+            // Keep partial content if any
+            if (!streamingContentRef.current) {
+              setMessages(prev => prev.filter(m => m.id !== aiMsgId));
+            }
+          }
+        },
+        authFetch
       );
-
-      // Ensure we keep the correct ID and refresh the history list
-      if (finalSessionId && finalSessionId !== currentSessionId) {
-        setCurrentSessionId(finalSessionId);
-      }
-      setHistoryUpdateTrigger(Date.now()); // Force history list to refresh with AI response
-      setOptimisticHistoryItem(null); // Clear optimistic item
-
     } catch (error: any) {
-      toast.error(`Hata: ${error.message}`);
-      console.error(error);
-    } finally {
+      setIsStreaming(false);
+      setStreamingMessageId(null);
       setIsLoading(false);
+      toast.error(`Hata: ${error.message}`);
     }
   };
 
@@ -425,67 +449,140 @@ export default function PlaygroundPage() {
     setSelectedQuestions([]);
     setOptimisticHistoryItem(null);
     setHistoryUpdateTrigger(Date.now());
+    abortStream();
+    setIsStreaming(false);
+    setStreamingMessageId(null);
   };
 
-  // Prevent hydration mismatch
   if (!mounted) {
     return (
-      <div className="flex h-screen bg-black items-center justify-center">
+      <div className="flex h-screen bg-[#0a0a0a] items-center justify-center">
         <div className="w-6 h-6 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-screen bg-black overflow-hidden">
-      {/* Header */}
-      <header className="h-16 border-b border-white/5 flex items-center justify-between px-4 md:px-8 bg-black/60 backdrop-blur-2xl shrink-0 z-50 sticky top-0">
-        <div className="flex items-center gap-6">
+    <div className="flex flex-col h-screen bg-[#0a0a0a] overflow-hidden">
+      {/* Top bar — 56px */}
+      <header className="h-14 border-b border-[#2a2a2a] flex items-center justify-between px-4 bg-[#0a0a0a] shrink-0 z-50 sticky top-0">
+        {/* Left: sidebar toggle + logo */}
+        <div className="flex items-center gap-3">
           <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="md:hidden text-zinc-400 hover:text-white p-2 hover:bg-white/5 rounded-full transition-all"
+            onClick={() => {
+              if (window.innerWidth < 768) {
+                setMobileDrawer(mobileDrawer === 'sidebar' ? null : 'sidebar');
+              } else {
+                setSidebarOpen(!sidebarOpen);
+              }
+            }}
+            className="p-1.5 rounded-lg hover:bg-[#1e1e1e] text-zinc-500 hover:text-zinc-300 transition-colors"
           >
-            {sidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            {sidebarOpen ? <PanelLeftClose className="w-5 h-5" /> : <PanelLeftOpen className="w-5 h-5" />}
           </button>
-          <Link href="/" className="group flex items-center">
-            <span className="text-2xl font-black tracking-tighter text-red-600 uppercase">DIJI-FETCH</span>
-            <div className="flex items-center gap-2 bg-white/5 px-3 py-1 rounded-full border border-white/10 ml-4 hidden sm:flex">
-              <Sparkles className="w-3 h-3 text-red-500 animate-pulse" />
-              <span className="text-[10px] font-black tracking-[0.2em] text-white uppercase">AI Öğretmen</span>
-            </div>
+          <Link href="/" className="flex items-center gap-3">
+            <span className="text-lg font-black tracking-tighter text-red-600 uppercase">DIJI-FETCH</span>
+            <span className="text-[10px] font-bold tracking-[0.15em] text-zinc-400 uppercase hidden sm:inline bg-[#1e1e1e] px-2 py-0.5 rounded">
+              AI Öğretmen
+            </span>
           </Link>
         </div>
 
-        <nav className="flex items-center gap-2 md:gap-4">
-          <Link href="/" className="px-5 py-2 bg-white text-black text-xs sm:text-sm font-black rounded-full hover:bg-zinc-200 transition-all shadow-xl shadow-white/5 flex items-center gap-2">
-            <ArrowLeft className="w-4 h-4" />
+        {/* Center: breadcrumb */}
+        <div className="hidden md:flex items-center text-xs text-zinc-500">
+          {selectedQuestions.length > 0 && (
+            <span className="truncate max-w-[300px]">
+              {selectedQuestions[0].title.split(' - ').slice(0, 2).join(' / ')}
+              {selectedQuestions.length > 1 && ` (+${selectedQuestions.length - 1})`}
+            </span>
+          )}
+        </div>
+
+        {/* Right: history toggle + back */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              if (window.innerWidth < 768) {
+                setMobileDrawer(mobileDrawer === 'history' ? null : 'history');
+              } else {
+                setHistoryOpen(!historyOpen);
+              }
+            }}
+            className="p-1.5 rounded-lg hover:bg-[#1e1e1e] text-zinc-500 hover:text-zinc-300 transition-colors"
+          >
+            {historyOpen ? <PanelRightClose className="w-5 h-5" /> : <PanelRightOpen className="w-5 h-5" />}
+          </button>
+          <Link
+            href="/"
+            className="px-3 py-1.5 border border-[#2a2a2a] text-zinc-400 text-xs font-medium rounded-lg hover:bg-[#1e1e1e] hover:text-zinc-200 transition-colors flex items-center gap-1.5"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
             Geri Dön
           </Link>
-        </nav>
+        </div>
       </header>
 
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Left Sidebar */}
-        <div className={`
-            absolute md:relative z-40 h-full bg-black md:bg-transparent transition-transform duration-300 ease-in-out border-r border-zinc-900 md:border-r-0
-            ${sidebarOpen ? 'translate-x-0 w-full' : '-translate-x-full md:translate-x-0'}
-            md:w-1/4 md:min-w-[250px] md:max-w-[400px]
-        `}>
-          <QuestionSidebar
-            selectedQuestions={selectedQuestions}
-            onToggleQuestion={handleToggleQuestion}
-          />
+        {/* Mobile backdrop */}
+        <AnimatePresence>
+          {mobileDrawer && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMobileDrawer(null)}
+              className="fixed inset-0 bg-black/60 z-30 md:hidden"
+            />
+          )}
+        </AnimatePresence>
+
+        {/* Left Sidebar — Desktop: animated width, Mobile: overlay drawer */}
+        <div className="hidden md:block">
+          <motion.div
+            animate={{ width: sidebarOpen ? 280 : 0 }}
+            transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
+            className="h-full overflow-hidden border-r border-[#2a2a2a] shrink-0"
+          >
+            <motion.div
+              animate={{ opacity: sidebarOpen ? 1 : 0 }}
+              transition={{ duration: 0.1 }}
+              className="w-[280px] h-full"
+            >
+              <QuestionSidebar
+                selectedQuestions={selectedQuestions}
+                onToggleQuestion={handleToggleQuestion}
+              />
+            </motion.div>
+          </motion.div>
         </div>
 
-        {/* Main Chat (Flex 1) */}
+        {/* Mobile sidebar drawer */}
+        <AnimatePresence>
+          {mobileDrawer === 'sidebar' && (
+            <motion.div
+              initial={{ x: -300 }}
+              animate={{ x: 0 }}
+              exit={{ x: -300 }}
+              transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
+              className="fixed left-0 top-14 bottom-0 w-[300px] z-40 md:hidden border-r border-[#2a2a2a]"
+            >
+              <QuestionSidebar
+                selectedQuestions={selectedQuestions}
+                onToggleQuestion={handleToggleQuestion}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Main Chat */}
         <div className="flex-1 min-w-0 w-full relative">
           <AnimatePresence mode="wait">
             <motion.div
               key={currentSessionId || "new-session"}
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.3, ease: "easeInOut" }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
               className="absolute inset-0"
             >
               <ChatInterface
@@ -495,22 +592,58 @@ export default function PlaygroundPage() {
                 onClearSelection={handleClearAllQuestions}
                 onRemoveQuestion={handleRemoveQuestion}
                 isLoading={isLoading}
+                isStreaming={isStreaming}
+                streamingMessageId={streamingMessageId}
               />
             </motion.div>
           </AnimatePresence>
         </div>
 
-        {/* Right History Panel */}
-        <div className="w-[300px] shrink-0 hidden md:block">
-          <HistoryPanel
-            userId={userId}
-            currentSessionId={currentSessionId}
-            onSelectSession={handleSelectSession}
-            onNewSession={handleNewSession}
-            lastUpdate={historyUpdateTrigger}
-            optimisticSession={optimisticHistoryItem}
-          />
+        {/* Right History Panel — Desktop: animated width */}
+        <div className="hidden md:block">
+          <motion.div
+            animate={{ width: historyOpen ? 300 : 0 }}
+            transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
+            className="h-full overflow-hidden shrink-0"
+          >
+            <motion.div
+              animate={{ opacity: historyOpen ? 1 : 0 }}
+              transition={{ duration: 0.1 }}
+              className="w-[300px] h-full"
+            >
+              <HistoryPanel
+                userId={userId}
+                currentSessionId={currentSessionId}
+                onSelectSession={handleSelectSession}
+                onNewSession={handleNewSession}
+                lastUpdate={historyUpdateTrigger}
+                optimisticSession={optimisticHistoryItem}
+              />
+            </motion.div>
+          </motion.div>
         </div>
+
+        {/* Mobile history drawer */}
+        <AnimatePresence>
+          {mobileDrawer === 'history' && (
+            <motion.div
+              initial={{ x: 300 }}
+              animate={{ x: 0 }}
+              exit={{ x: 300 }}
+              transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
+              className="fixed right-0 top-14 bottom-0 w-[300px] z-40 md:hidden"
+            >
+              <HistoryPanel
+                userId={userId}
+                currentSessionId={currentSessionId}
+                onSelectSession={handleSelectSession}
+                onNewSession={handleNewSession}
+                lastUpdate={historyUpdateTrigger}
+                optimisticSession={optimisticHistoryItem}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );

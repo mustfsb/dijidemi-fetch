@@ -1,13 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import cookieManager from '@/lib/cookie/cookieManager';
-import { supabase } from '@/lib/db/supabase';
-import { getClientIp } from '@/lib/auth';
+import {
+    getClientIp,
+    isLocalBrowserMode,
+    setDijidemiSessionCookie,
+    setDijidemiUpstreamCookies,
+} from '@/lib/auth';
 import { RateLimits } from '@/lib/rate-limit';
 import {
     PRIVATE_TEST_COOKIE_MAX_AGE,
     PRIVATE_TEST_UID_COOKIE,
     signUserId,
 } from '@/lib/private-test/device-gate';
+import { DijidemiLoginError, playwrightService } from '@/lib/cookie/playwrightService';
+import { syncDijidemiUserToDatabase } from '@/lib/auth/syncDijidemiUser';
+import { localDijidemiBrowserManager } from '@/lib/dijidemi/localBrowserManager';
 
 interface LoginBody {
     username: string;
@@ -18,6 +24,9 @@ interface LoginApiResponse {
     success?: boolean;
     data?: unknown;
     user_id?: string;
+    status?: 'awaiting_verification';
+    attemptId?: string;
+    message?: string;
     error?: string;
 }
 
@@ -26,7 +35,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<LoginApiR
         // Rate limit login attempts
         const ip = getClientIp(request);
         const loginScope = request.headers.get('user-agent') || 'unknown-agent';
-        if (!RateLimits.LOGIN(ip, loginScope)) {
+        if (!(await RateLimits.LOGIN(ip, loginScope))) {
             return NextResponse.json({ error: 'Çok fazla giriş denemesi. Lütfen bekleyin.' }, { status: 429 });
         }
 
@@ -48,96 +57,38 @@ export async function POST(request: NextRequest): Promise<NextResponse<LoginApiR
             return NextResponse.json({ error: 'Username or password too long' }, { status: 400 });
         }
 
-        // 1. Initial Login Request to get cookies and authentication
-        // Send credentials in body (not URL query) to avoid leakage via logs/referers.
-        const loginUrl = `https://www.dijidemi.com/Login/UserLogin?vs=${Date.now()}`;
-        const loginBody = new URLSearchParams({
-            userName: trimmedUsername,
+        if (isLocalBrowserMode()) {
+            const attempt = localDijidemiBrowserManager.startLoginAttempt({
+                username: trimmedUsername,
+                password: trimmedPassword,
+            });
+
+            return NextResponse.json({
+                status: 'awaiting_verification',
+                attemptId: attempt.attemptId,
+                message: attempt.message,
+            }, { status: 202 });
+        }
+
+        const upstreamCookies = await playwrightService.getFreshCookies({
+            username: trimmedUsername,
             password: trimmedPassword,
-            fromCms: '0',
-            rememberMe: 'true',
         });
-
-        // We need to fetch with a standard User-Agent and headers to mimic a browser
-        const loginResponse = await fetch(loginUrl, {
-            method: 'POST',
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
-                'Accept': '*/*',
-                'X-Requested-With': 'XMLHttpRequest',
-                // Important: mimic the Referer
-                'Referer': 'https://www.dijidemi.com/Login',
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            },
-            body: loginBody.toString(),
-        });
-
-        if (!loginResponse.ok) {
-            return NextResponse.json({ error: 'Login failed upstream' }, { status: loginResponse.status });
-        }
-
-        const loginData = await loginResponse.json();
-
-        // Check if login was actually successful based on response body
-        // Dijidemi likely returns a success field. If it's explicitly false, reject.
-        if (loginData && (loginData.Success === false || loginData.success === false)) {
-            return NextResponse.json({ error: loginData.Message || loginData.message || 'Giriş başarısız (Hatalı bilgiler)' }, { status: 401 });
-        }
-
-        const setCookieHeader = loginResponse.headers.get('set-cookie');
 
         // Return success with the cookies
-        // We will manually parse and set the cookies on the Next.js response so the browser stores them
-        // The client (browser) will then send these cookies back to our API on subsequent requests
-
         // --- USER SYNC: Check & Create ---
-        const userId = await syncUserToDatabase(trimmedUsername, request);
+        const userId = await syncDijidemiUserToDatabase(trimmedUsername, request);
         if (!userId) {
             return NextResponse.json({ error: 'Kullanıcı kaydı senkronize edilemedi.' }, { status: 500 });
         }
 
-        const response = NextResponse.json({ success: true, data: loginData, user_id: userId });
-
-        if (setCookieHeader) {
-            // fast-and-loose cookie split (handling multiple Set-Cookie headers is tricky in fetch API in some envs)
-            // But Next.js/Node fetch usually combines them or gives an iterator.
-            // Let's iterate if possible, or handle the string.
-            // Note: node-fetch might modify how it returns headers. 
-            // In Next.js App Router, headers.getSetCookie() is available in newer versions 
-            // or headers.get('set-cookie') might return a comma-separated list which is bad for dates.
-
-            // safer approach for Next.js middleware/Edge:
-            const cookies = loginResponse.headers.getSetCookie
-                ? loginResponse.headers.getSetCookie()
-                : [loginResponse.headers.get('set-cookie')];
-
-            cookies.forEach((cookieString: string | null) => {
-                if (cookieString) {
-                    // Simple parsing to get name and value. 
-                    // Real parsing is complex, but we mainly want to pass them through.
-                    // However, we can't easily "pass through" raw Set-Cookie strings invalidly in NextResponse. 
-                    // We should let the client handle it? No, client is browser, requests are mostly CORS or Proxy.
-                    // Since we represent the backend for the frontend, we should set these cookies on our domain.
-                    // The browser will scope them to localhost:3000 (or wherever we are).
-
-                    const parts = cookieString.split(';');
-                    const firstPart = parts[0];
-                    const eqIndex = firstPart.indexOf('=');
-                    if (eqIndex === -1) return;
-                    const name = firstPart.substring(0, eqIndex).trim();
-                    const value = firstPart.substring(eqIndex + 1).trim();
-
-                    if (name && value) {
-                        response.cookies.set(name.trim(), value.trim(), {
-                            httpOnly: true, // Force httpOnly for security
-                            path: '/',
-                            secure: process.env.NODE_ENV === 'production',
-                            sameSite: 'lax',
-                        });
-                    }
-                }
-            });
-        }
+        const response = NextResponse.json({
+            success: true,
+            data: { authenticated: true },
+            user_id: userId,
+        });
+        response.headers.set('Cache-Control', 'no-store');
+        setDijidemiUpstreamCookies(response, upstreamCookies);
 
         const signedUserId = await signUserId(userId);
         if (!signedUserId) {
@@ -151,74 +102,24 @@ export async function POST(request: NextRequest): Promise<NextResponse<LoginApiR
             maxAge: PRIVATE_TEST_COOKIE_MAX_AGE,
         });
 
+        if (!setDijidemiSessionCookie(response, userId)) {
+            return NextResponse.json({ error: 'Sunucu oturum ayarı eksik.' }, { status: 500 });
+        }
+
         return response;
 
     } catch (error) {
-        console.error('Login Error:', error instanceof Error ? error.message.substring(0, 100) : 'Unknown');
-        return NextResponse.json({ error: 'Giriş sırasında bir hata oluştu.' }, { status: 500 });
-    }
-}
+        if (error instanceof DijidemiLoginError) {
+            const status = error.code === 'invalid_credentials'
+                ? 401
+                : error.code === 'browser_missing' || error.code === 'challenge_failed'
+                    ? 503
+                    : 502;
 
-/**
- * Check if user exists in Supabase `users` table by external_id.
- * If not, create a new record. Always log the LOGIN event.
- * Returns the user's UUID (users.id).
- */
-async function syncUserToDatabase(username: string, request: NextRequest): Promise<string | undefined> {
-    try {
-        const ip = getClientIp(request);
-
-        // 1. Check if user already exists
-        const { data: existingUser } = await supabase
-            .from('users')
-            .select('id')
-            .eq('external_id', username)
-            .single();
-
-        let userId: string;
-
-        if (existingUser) {
-            // User exists — update last_login_at
-            userId = existingUser.id;
-            await supabase
-                .from('users')
-                .update({ last_login_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-                .eq('id', userId);
-
-            console.log(`[Auth] Existing user logged in: ${username} (${userId})`);
-        } else {
-            // User does NOT exist — create a new record
-            const { data: newUser, error: insertError } = await supabase
-                .from('users')
-                .insert([{
-                    external_id: username,
-                    username: username,
-                    role: 'user',
-                    last_login_at: new Date().toISOString(),
-                }])
-                .select('id')
-                .single();
-
-            if (insertError || !newUser) {
-                console.error('[Auth] Failed to create user record:', insertError);
-                return undefined;
-            }
-
-            userId = newUser.id;
-            console.log(`[Auth] New user created: ${username} (${userId})`);
+            return NextResponse.json({ error: error.message }, { status });
         }
 
-        // 2. Log the LOGIN event
-        await supabase.from('logs').insert([{
-            user_id: userId,
-            event_type: 'LOGIN',
-            ip_address: ip,
-            details: { source: 'dijidemi' },
-        }]);
-
-        return userId;
-    } catch (error) {
-        console.error('[Auth] User sync error (non-blocking):', error);
-        return undefined;
+        console.error('Login Error:', error instanceof Error ? error.message.substring(0, 100) : 'Unknown');
+        return NextResponse.json({ error: 'Giriş sırasında bir hata oluştu.' }, { status: 500 });
     }
 }

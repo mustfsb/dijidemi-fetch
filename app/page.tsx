@@ -93,11 +93,7 @@ export default function Home() {
   // Hooks
   const auth = useAuth(showToast);
   const program = useProgram(showToast);
-  const assignments = useAssignments(
-    showToast,
-    auth.refreshCookies,
-    auth.setIsLoggedIn,
-  );
+  const assignments = useAssignments();
   const books = useBooks();
   const testRunner = useTestRunner(
     showToast,

@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
   // Rate limit login attempts
   const ip = getClientIp(request);
   const loginScope = request.headers.get('user-agent') || 'unknown-agent';
-  if (!RateLimits.LOGIN(ip, loginScope)) {
+  if (!(await RateLimits.LOGIN(ip, loginScope))) {
     return NextResponse.json({ error: 'Çok fazla giriş denemesi. Lütfen bekleyin.' }, { status: 429 });
   }
 
@@ -95,26 +95,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Admin hesabı için şifre tanımlı değil.' }, { status: 403 });
     }
 
-    // Support both bcrypt hashed and legacy plaintext passwords
-    const isHashed = storedPassword.startsWith('$2a$') || storedPassword.startsWith('$2b$');
-    
-    let passwordValid = false;
-    if (isHashed) {
-      passwordValid = await bcrypt.compare(trimmedPassword, storedPassword);
-    } else {
-      // Legacy plaintext comparison - migrate to hash after successful login
-      passwordValid = storedPassword === trimmedPassword;
-      
-      if (passwordValid) {
-        // Auto-migrate: hash the plaintext password and update in DB
-        const hashedPassword = await bcrypt.hash(trimmedPassword, 12);
-        await supabaseDirect
-          .from('admin')
-          .update({ password: hashedPassword })
-          .eq('username', trimmedUsername);
-        log(`[Auth] Migrated plaintext password to bcrypt hash for admin user`);
-      }
+    const isBcryptHash = storedPassword.startsWith('$2a$') || storedPassword.startsWith('$2b$');
+    if (!isBcryptHash) {
+      // One-time manual migration path:
+      // const hashedPassword = await bcrypt.hash('<new-password>', 12)
+      // Then update admin.password with the resulting bcrypt hash.
+      console.warn(`[Auth] Admin account '${trimmedUsername}' requires bcrypt password migration.`);
+      return NextResponse.json({ error: 'Hatalı kullanıcı adı veya şifre.' }, { status: 401 });
     }
+
+    const passwordValid = await bcrypt.compare(trimmedPassword, storedPassword);
 
     if (!passwordValid) {
       log(`[Auth] Password mismatch for admin user`);

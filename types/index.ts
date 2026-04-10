@@ -55,9 +55,12 @@ export interface LoginCredentials {
 }
 
 export interface LoginResponse {
-    success: boolean;
+    success?: boolean;
     data?: unknown;
     user_id?: string;
+    status?: 'awaiting_verification' | 'opening_browser' | 'ready' | 'failed';
+    attemptId?: string;
+    message?: string;
     error?: string;
 }
 

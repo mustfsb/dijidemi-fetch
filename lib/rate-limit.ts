@@ -1,70 +1,51 @@
-/**
- * In-memory rate limiter for API routes.
- * Tracks request counts per IP within a sliding window.
- */
+import { supabase } from '@/lib/db/supabase';
 
-interface RateLimitEntry {
-    count: number;
-    resetAt: number;
+interface RateLimitRpcRow {
+    allowed?: boolean;
 }
-
-const store = new Map<string, RateLimitEntry>();
-const MAX_ENTRIES = 10000;
-
-// Clean up expired entries periodically (every 5 minutes)
-const cleanupTimer = setInterval(() => {
-    const now = Date.now();
-    for (const [key, entry] of store.entries()) {
-        if (now > entry.resetAt) {
-            store.delete(key);
-        }
-    }
-}, 5 * 60 * 1000);
-cleanupTimer.unref?.();
 
 function normalizeKey(key: string): string {
     const value = (key || 'unknown').trim() || 'unknown';
     return value.slice(0, 256);
 }
 
-function enforceStoreBound(now: number): void {
-    if (store.size < MAX_ENTRIES) return;
-
-    // First pass: remove expired entries.
-    for (const [key, entry] of store.entries()) {
-        if (now > entry.resetAt) {
-            store.delete(key);
-        }
-    }
-
-    // Second pass: if still too large, evict oldest insertion-order entries.
-    while (store.size >= MAX_ENTRIES) {
-        const oldestKey = store.keys().next().value;
-        if (!oldestKey) break;
-        store.delete(oldestKey);
-    }
+function toWindowSeconds(windowMs: number): number {
+    return Math.max(1, Math.ceil(windowMs / 1000));
 }
 
 /**
- * Check if a request is within the rate limit.
+ * Shared Postgres-backed rate limiter for serverless deployments.
  * @param key - Unique identifier (usually IP or IP+route)
  * @param limit - Maximum number of requests allowed in the window
  * @param windowMs - Time window in milliseconds (default: 60 seconds)
  * @returns true if request is allowed, false if rate limited
  */
-export function checkRateLimit(key: string, limit: number = 30, windowMs: number = 60000): boolean {
-    const now = Date.now();
+export async function checkRateLimit(key: string, limit: number = 30, windowMs: number = 60000): Promise<boolean> {
     const normalizedKey = normalizeKey(key);
-    const entry = store.get(normalizedKey);
 
-    if (!entry || now > entry.resetAt) {
-        enforceStoreBound(now);
-        store.set(normalizedKey, { count: 1, resetAt: now + windowMs });
+    try {
+        const { data, error } = await supabase.rpc('consume_rate_limit', {
+            p_key: normalizedKey,
+            p_limit: limit,
+            p_window_seconds: toWindowSeconds(windowMs),
+        });
+
+        if (error) {
+            console.error('[RateLimit] RPC failed:', error);
+            return true;
+        }
+
+        const row = (Array.isArray(data) ? data[0] : data) as RateLimitRpcRow | null;
+        if (!row || typeof row.allowed !== 'boolean') {
+            console.warn('[RateLimit] RPC returned unexpected payload.');
+            return true;
+        }
+
+        return row.allowed;
+    } catch (error) {
+        console.error('[RateLimit] Unexpected limiter failure:', error);
         return true;
     }
-
-    entry.count++;
-    return entry.count <= limit;
 }
 
 /**

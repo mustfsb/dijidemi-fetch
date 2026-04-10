@@ -1,10 +1,11 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-export async function updateSession(request: NextRequest) {
+export async function updateSession(request: NextRequest, requestHeaders?: Headers) {
+  const forwardedHeaders = requestHeaders ?? request.headers
   let response = NextResponse.next({
     request: {
-      headers: request.headers,
+      headers: forwardedHeaders,
     },
   })
 
@@ -24,7 +25,7 @@ export async function updateSession(request: NextRequest) {
           })
           response = NextResponse.next({
             request: {
-              headers: request.headers,
+              headers: forwardedHeaders,
             },
           })
           response.cookies.set({
@@ -41,7 +42,7 @@ export async function updateSession(request: NextRequest) {
           })
           response = NextResponse.next({
             request: {
-              headers: request.headers,
+              headers: forwardedHeaders,
             },
           })
           response.cookies.set({

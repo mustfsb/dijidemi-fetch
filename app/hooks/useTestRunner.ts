@@ -101,24 +101,58 @@ export function useTestRunner(
                 showToast('Bu testte cevap anahtarı bulunamadı. Sorular yüklenemedi.', 'error');
             }
 
-            // Batch fetch all videos in a single server-side call
             const count = normalizedData.SoruSayisi || 40;
-            setVideoStatus('Video çözümler yükleniyor...');
+            setVideoStatus(`Video çözümler yükleniyor...`);
+            try {
+                const videosRes = await authFetch(
+                    `/api/videos?testId=${encodeURIComponent(tId)}&count=${count}`,
+                    { headers: { 'Accept': 'text/event-stream' } }
+                );
 
-            authFetch(`/api/videos?testId=${tId}&count=${count}`)
-                .then(r => r.json())
-                .then(d => {
-                    if (d.success && d.videos) {
-                        // Single state update with all videos at once
-                        setVideos(d.videos.map((v: { q: number; url: string }) => ({ q: v.q, url: v.url })));
-                        setVideoStatus('Tamamlandı');
-                    } else {
-                        setVideoStatus('Video bulunamadı');
+                if (!videosRes.ok || !videosRes.body) {
+                    setVideoStatus('Video çözümü yüklenemedi');
+                } else {
+                    const reader = videosRes.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = '';
+                    let loaded = 0;
+
+                    outer: while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+
+                        buffer += decoder.decode(value, { stream: true });
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop() ?? '';
+
+                        for (const line of lines) {
+                            if (!line.startsWith('data: ')) continue;
+                            try {
+                                const event = JSON.parse(line.slice(6));
+                                if (event.done) {
+                                    setVideoStatus(event.found > 0 ? 'Tamamlandı' : 'Video çözümü bulunamadı');
+                                    break outer;
+                                }
+                                if (event.error) {
+                                    setVideoStatus('Video çözümü yüklenemedi');
+                                    break outer;
+                                }
+                                if (event.q && event.url) {
+                                    loaded++;
+                                    setVideos(prev =>
+                                        [...prev, { q: event.q, url: event.url }]
+                                            .sort((a, b) => a.q - b.q)
+                                    );
+                                    setVideoStatus(`Video çözümler yükleniyor (${loaded}/${count})...`);
+                                }
+                            } catch { /* malformed event, skip */ }
+                        }
                     }
-                })
-                .catch(() => {
-                    setVideoStatus('Video yüklenemedi');
-                });
+                }
+            } catch {
+                setVideoStatus('Video çözümü yüklenemedi');
+            }
+
         } catch (e) {
             setError(e instanceof Error ? e.message : 'Bilinmeyen hata');
             setVideoStatus('Hata');

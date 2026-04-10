@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import cookieManager from '@/lib/cookie/cookieManager';
 import type { BookTestsRequest, Test } from '@/types';
-import { requireAuth, getClientIp } from '@/lib/auth';
+import {
+    requireAuth,
+    getClientIp,
+} from '@/lib/auth';
+import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
 import { RateLimits } from '@/lib/rate-limit';
 
 interface BookTestsApiResponse {
@@ -10,15 +13,26 @@ interface BookTestsApiResponse {
     error?: string;
 }
 
+const NUMERIC_ID_PATTERN = /^\d+$/;
+
+function parseNumericId(value: unknown): string | null {
+    if (typeof value !== 'string' && typeof value !== 'number') return null;
+    const normalized = String(value).trim();
+    if (!normalized || normalized.length > 64 || !NUMERIC_ID_PATTERN.test(normalized)) {
+        return null;
+    }
+    return normalized;
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse<BookTestsApiResponse>> {
     try {
         // Auth check
-        const auth = requireAuth(request);
+        const auth = await requireAuth(request);
         if (auth instanceof NextResponse) return auth;
 
         // Rate limit
         const ip = getClientIp(request);
-        if (!RateLimits.GENERAL(ip, auth.userId)) {
+        if (!(await RateLimits.GENERAL(ip, auth.userId))) {
             return NextResponse.json({ error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
         }
 
@@ -28,25 +42,26 @@ export async function POST(request: NextRequest): Promise<NextResponse<BookTests
         } catch {
             return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
         }
-        const { id } = body;
+        const id = parseNumericId(body.id);
 
         if (!id) {
-            return NextResponse.json({ error: 'Book ID is required' }, { status: 400 });
-        }
-        if (String(id).length > 64) {
-            return NextResponse.json({ error: 'Book ID is too long' }, { status: 400 });
+            return NextResponse.json({ error: 'Book ID is invalid' }, { status: 400 });
         }
 
-        // Hardcoded headers and cookies as per user request
-        const headers = await cookieManager.getHeaders();
+        const url = new URL('https://www.dijidemi.com/Ogrenci/KitapTestlerTable');
+        url.search = new URLSearchParams({
+            Id: id,
+            ___layout: '',
+        }).toString();
 
-        const url = `https://www.dijidemi.com/Ogrenci/KitapTestlerTable?Id=${id}&___layout`;
-
-        const response = await fetch(url, {
+        const response = await requestDijidemiUpstream({
+            request,
+            userId: auth.userId,
+            url: url.toString(),
             method: 'POST',
-            headers: headers,
-            body: ''
+            body: '',
         });
+        if (response instanceof NextResponse) return response;
 
         if (!response.ok) {
             return NextResponse.json({ error: `Upstream error: ${response.status}` }, { status: response.status });

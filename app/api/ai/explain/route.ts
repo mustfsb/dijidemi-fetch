@@ -10,12 +10,12 @@ const model = genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' });
 export async function POST(request: NextRequest) {
     try {
         // Auth check
-        const auth = requireAuth(request);
+        const auth = await requireAuth(request);
         if (auth instanceof NextResponse) return auth;
 
         // Rate limit (AI is costly)
         const ip = getClientIp(request);
-        if (!RateLimits.AI(ip, auth.userId)) {
+        if (!(await RateLimits.AI(ip, auth.userId))) {
             return NextResponse.json({ error: 'Çok fazla AI isteği. Lütfen bekleyin.' }, { status: 429 });
         }
 

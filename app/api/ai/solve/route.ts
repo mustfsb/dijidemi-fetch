@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import * as cheerio from 'cheerio';
-import cookieManager from '@/lib/cookie/cookieManager';
-import { requireAuth, getClientIp } from '@/lib/auth';
+import {
+    requireAuth,
+    getClientIp,
+} from '@/lib/auth';
+import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
 import { RateLimits } from '@/lib/rate-limit';
 
 // List of available API keys for rotation
@@ -35,12 +38,12 @@ const getModel = (apiKey: string) => {
 export async function POST(request: NextRequest) {
     try {
         // Auth check
-        const auth = requireAuth(request);
+        const auth = await requireAuth(request);
         if (auth instanceof NextResponse) return auth;
 
         // Rate limit (AI is costly)
         const ip = getClientIp(request);
-        if (!RateLimits.AI(ip, auth.userId)) {
+        if (!(await RateLimits.AI(ip, auth.userId))) {
             return NextResponse.json({ error: 'Çok fazla AI isteği. Lütfen bekleyin.' }, { status: 429 });
         }
 
@@ -117,10 +120,6 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Parametreler çok uzun' }, { status: 400 });
         }
 
-        // Use CookieManager to get valid server-side auth headers
-        const authHeaders = await cookieManager.getHeaders();
-        const fetchCookies = authHeaders['Cookie'] || '';
-
         // 1. Fetch Test Page from Dijidemi to find Image URL
         const targetUrl = `https://www.dijidemi.com/Ogrenci/KitapTestDetay?kitapId=${bookId}&___layout`;
 
@@ -128,24 +127,21 @@ export async function POST(request: NextRequest) {
             console.log(`[API] Fetching test page for TestID: ${testId}, BookID: ${bookId}`);
         }
 
-        const pageResponse = await fetch(targetUrl, {
+        const pageResponse = await requestDijidemiUpstream({
+            request,
+            userId: auth.userId,
+            url: targetUrl,
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                'Cookie': fetchCookies,
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
                 'X-Requested-With': 'XMLHttpRequest',
                 'Accept': 'text/html, */*; q=0.01',
-                'Origin': 'https://www.dijidemi.com',
-                'Referer': 'https://www.dijidemi.com/Ogrenci',
-                'Sec-Fetch-Site': 'same-origin',
-                'Sec-Fetch-Mode': 'cors',
-                'Sec-Fetch-Dest': 'empty',
                 'Accept-Language': 'en-US,en;q=0.9',
-                'Priority': 'u=1, i'
             },
-            body: `id=${testId}`
+            body: `id=${testId}`,
+            referrer: 'https://www.dijidemi.com/Ogrenci',
         });
+        if (pageResponse instanceof NextResponse) return pageResponse;
 
         if (!pageResponse.ok) {
             console.error(`[API] Page fetch failed: ${pageResponse.status}`);

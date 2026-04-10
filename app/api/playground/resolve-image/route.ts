@@ -1,18 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as cheerio from 'cheerio';
-import cookieManager from '@/lib/cookie/cookieManager';
-import { requireAuth, getClientIp } from '@/lib/auth';
+import {
+    requireAuth,
+    getClientIp,
+} from '@/lib/auth';
+import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
 import { RateLimits } from '@/lib/rate-limit';
+
+const NUMERIC_ID_PATTERN = /^\d+$/;
+
+function parseNumericId(value: unknown, field: string, maxLength: number): string | NextResponse {
+    if (typeof value !== 'string' && typeof value !== 'number') {
+        return NextResponse.json({ error: `${field} gerekli` }, { status: 400 });
+    }
+    const normalized = String(value).trim();
+    if (!normalized || normalized.length > maxLength || !NUMERIC_ID_PATTERN.test(normalized)) {
+        return NextResponse.json({ error: `${field} geçersiz` }, { status: 400 });
+    }
+    return normalized;
+}
 
 export async function POST(request: NextRequest) {
     try {
         // Auth check
-        const auth = requireAuth(request);
+        const auth = await requireAuth(request);
         if (auth instanceof NextResponse) return auth;
 
         // Rate limit
         const ip = getClientIp(request);
-        if (!RateLimits.GENERAL(ip, auth.userId)) {
+        if (!(await RateLimits.GENERAL(ip, auth.userId))) {
             return NextResponse.json({ error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
         }
 
@@ -22,35 +38,33 @@ export async function POST(request: NextRequest) {
         } catch {
             return NextResponse.json({ error: 'Geçersiz JSON gövdesi' }, { status: 400 });
         }
-        const { bookId, testId, questionNumber } = body;
+        const bookId = parseNumericId(body.bookId, 'bookId', 64);
+        if (bookId instanceof NextResponse) return bookId;
+        const testId = parseNumericId(body.testId, 'testId', 64);
+        if (testId instanceof NextResponse) return testId;
+        const questionNumber = parseNumericId(body.questionNumber, 'questionNumber', 16);
+        if (questionNumber instanceof NextResponse) return questionNumber;
 
-        if (!bookId || !testId || !questionNumber) {
-            return NextResponse.json({ error: 'Eksik parametreler' }, { status: 400 });
-        }
-        if (
-            String(bookId).length > 64
-            || String(testId).length > 64
-            || String(questionNumber).length > 16
-        ) {
-            return NextResponse.json({ error: 'Geçersiz parametre uzunluğu' }, { status: 400 });
-        }
+        const targetUrl = new URL('https://www.dijidemi.com/Ogrenci/KitapTestDetay');
+        targetUrl.search = new URLSearchParams({
+            kitapId: bookId,
+            ___layout: '',
+        }).toString();
 
-        const authHeaders = await cookieManager.getHeaders();
-        const fetchCookies = authHeaders['Cookie'] || '';
-
-        const targetUrl = `https://www.dijidemi.com/Ogrenci/KitapTestDetay?kitapId=${bookId}&___layout`;
-
-        const pageResponse = await fetch(targetUrl, {
+        const pageResponse = await requestDijidemiUpstream({
+            request,
+            userId: auth.userId,
+            url: targetUrl.toString(),
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                'Cookie': fetchCookies,
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
                 'X-Requested-With': 'XMLHttpRequest',
                 'Accept': 'text/html, */*; q=0.01',
             },
-            body: `id=${testId}`
+            body: new URLSearchParams({ id: testId }).toString(),
+            referrer: 'https://www.dijidemi.com/Ogrenci',
         });
+        if (pageResponse instanceof NextResponse) return pageResponse;
 
         if (!pageResponse.ok) {
             return NextResponse.json({ error: 'Sayfa yüklenemedi' }, { status: 502 });

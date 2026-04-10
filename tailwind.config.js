@@ -47,6 +47,11 @@ module.exports = {
                 "background-dark": "#09090b", // zinc-950
                 "surface-dark": "#18181b", // zinc-900
                 "border-dark": "#27272a", // zinc-800
+                // Playground design tokens
+                "playground-base": "#0a0a0a",
+                "playground-surface": "#141414",
+                "playground-elevated": "#1e1e1e",
+                "playground-border": "#2a2a2a",
             },
             borderRadius: {
                 lg: "var(--radius)",
@@ -58,6 +63,9 @@ module.exports = {
                 "display": ["Lexend", "sans-serif"],
                 "body": ["Noto Sans", "sans-serif"],
             },
+            transitionTimingFunction: {
+                'app': 'cubic-bezier(0.25, 0.1, 0.25, 1)',
+            },
             keyframes: {
                 "accordion-down": {
                     from: { height: "0" },
@@ -67,10 +75,15 @@ module.exports = {
                     from: { height: "var(--radix-accordion-content-height)" },
                     to: { height: "0" },
                 },
+                "pulse-dot": {
+                    "0%, 100%": { opacity: "1" },
+                    "50%": { opacity: "0.3" },
+                },
             },
             animation: {
                 "accordion-down": "accordion-down 0.2s ease-out",
                 "accordion-up": "accordion-up 0.2s ease-out",
+                "pulse-dot": "pulse-dot 1.5s ease-in-out infinite",
             },
         },
     },

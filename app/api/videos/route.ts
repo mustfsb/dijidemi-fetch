@@ -1,130 +1,176 @@
 import { NextRequest, NextResponse } from 'next/server';
+import {
+    isLocalBrowserMode,
+    requireAuth,
+    getClientIp,
+    createMissingDijidemiSessionResponse,
+} from '@/lib/auth';
+import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
+import { fetchManyViaBrowser } from '@/lib/dijidemi/productionBrowserManager';
 import cookieManager from '@/lib/cookie/cookieManager';
-import { requireAuth, getClientIp } from '@/lib/auth';
 import { RateLimits } from '@/lib/rate-limit';
 
-interface VideoResult {
-    q: number;
-    url: string | null;
+const NUMERIC_ID_PATTERN = /^\d+$/;
+
+function parseNumericParam(value: string | null, field: string): string | NextResponse {
+    const normalized = value?.trim() || '';
+    if (!normalized || !NUMERIC_ID_PATTERN.test(normalized)) {
+        return NextResponse.json({ error: `Invalid ${field}` }, { status: 400 });
+    }
+    return normalized;
+}
+
+function extractVideoUrl(html: string): string | null {
+    const videoSrcMatch = html.match(/<video[^>]*src="([^"]+)"/i);
+    if (videoSrcMatch) return videoSrcMatch[1];
+
+    const sourceSrcMatch = html.match(/<source[^>]*src="([^"]+)"/i);
+    if (sourceSrcMatch) return sourceSrcMatch[1];
+
+    const mp4Match = html.match(/"([^"]+\.mp4)"/);
+    if (mp4Match) return mp4Match[1];
+
+    return null;
+}
+
+function isChallengeHtml(body: string): boolean {
+    const normalized = body.toLowerCase();
+    return (
+        normalized.includes('just a moment')
+        || normalized.includes('bir dakika lütfen')
+        || normalized.includes('enable javascript and cookies to continue')
+        || normalized.includes('güvenlik doğrulaması gerçekleştirme')
+    );
 }
 
 /**
- * Batch video endpoint: fetches all video URLs for a test in a single server-side call.
- * Replaces 40 individual /api/video calls with one request.
- * 
+ * Streaming video batch endpoint — returns Server-Sent Events.
+ *
  * GET /api/videos?testId=123&count=40
+ *
+ * Each video URL is emitted as it is resolved:
+ *   data: {"q":1,"url":"https://..."}\n\n
+ *
+ * Final event:
+ *   data: {"done":true,"found":N,"total":M}\n\n
  */
 export async function GET(request: NextRequest) {
-    // Auth check
-    const auth = requireAuth(request);
+    const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
 
-    // Rate limit (use GENERAL — this replaces 40 calls with 1)
     const ip = getClientIp(request);
-    if (!RateLimits.GENERAL(ip, auth.userId)) {
+    if (!(await RateLimits.GENERAL(ip, auth.userId))) {
         return NextResponse.json({ error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
     }
 
     const { searchParams } = new URL(request.url);
-    const testId = searchParams.get('testId');
-    const count = parseInt(searchParams.get('count') || '40', 10);
+    const testId = parseNumericParam(searchParams.get('testId'), 'testId');
+    if (testId instanceof NextResponse) return testId;
 
-    if (!testId) {
-        return NextResponse.json({ error: 'Missing testId' }, { status: 400 });
-    }
+    const rawCount = parseInt(searchParams.get('count') || '40', 10);
+    const count = Number.isFinite(rawCount) && rawCount >= 1 && rawCount <= 100 ? rawCount : 40;
 
-    if (count < 1 || count > 100) {
-        return NextResponse.json({ error: 'Invalid count (1-100)' }, { status: 400 });
-    }
+    const videoUrl = `https://www.dijidemi.com/Ogrenci2020/Video?___layout`;
+    const encoder = new TextEncoder();
 
-    try {
-        // Single headers fetch — cached for 30s by cookieManager
-        const headers = await cookieManager.getHeaders();
-        const url = `https://www.dijidemi.com/Ogrenci2020/Video?___layout`;
+    const stream = new ReadableStream({
+        async start(controller) {
+            let foundCount = 0;
+            let blocked = false;
 
-        // Fetch all videos in parallel with concurrency limit
-        const CONCURRENCY = 10;
-        const results: VideoResult[] = [];
+            const emit = (data: object) => {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
+            };
 
-        for (let batch = 0; batch < count; batch += CONCURRENCY) {
-            const batchEnd = Math.min(batch + CONCURRENCY, count);
-            const batchPromises: Promise<VideoResult>[] = [];
+            try {
+                if (isLocalBrowserMode()) {
+                    // Local browser mode: sequential requests through localDijidemiBrowserManager
+                    for (let soruId = 1; soruId <= count; soruId++) {
+                        const body = new URLSearchParams({
+                            tur: '2', sinavId: '0', sinavTuru: '2',
+                            testId, soruId: String(soruId),
+                        }).toString();
 
-            for (let i = batch; i < batchEnd; i++) {
-                const soruId = i + 1;
-                batchPromises.push(
-                    fetchVideoUrl(url, headers, testId, soruId)
-                );
+                        const response = await requestDijidemiUpstream({
+                            request,
+                            userId: auth.userId,
+                            url: videoUrl,
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                            body,
+                            referrer: 'https://www.dijidemi.com/Ogrenci2020',
+                        });
+
+                        if (response instanceof NextResponse) {
+                            blocked = true;
+                            break;
+                        }
+
+                        if (response.ok) {
+                            const html = await response.text();
+                            const url = extractVideoUrl(html);
+                            if (url) {
+                                foundCount++;
+                                emit({ q: soruId, url });
+                            }
+                        }
+                    }
+                } else {
+                    // Production mode: one browser context, all fetches in parallel
+                    const cookies = await cookieManager.getCookies();
+                    if (!cookies.some(c => c.name === 'cf_clearance' && c.value)) {
+                        emit({ error: 'missing_session' });
+                        return;
+                    }
+
+                    const browserRequests = Array.from({ length: count }, (_, i) => ({
+                        url: videoUrl,
+                        method: 'POST' as const,
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                        body: new URLSearchParams({
+                            tur: '2', sinavId: '0', sinavTuru: '2',
+                            testId, soruId: String(i + 1),
+                        }).toString(),
+                        referrer: 'https://www.dijidemi.com/Ogrenci2020',
+                    }));
+
+                    await fetchManyViaBrowser(browserRequests, cookies, (index, result) => {
+                        if (!result) return;
+                        const soruId = index + 1;
+
+                        if (result.status === 403 && isChallengeHtml(result.body)) {
+                            blocked = true;
+                            return;
+                        }
+
+                        const url = extractVideoUrl(result.body);
+                        if (url) {
+                            foundCount++;
+                            emit({ q: soruId, url });
+                        }
+                    });
+                }
+
+                if (blocked && foundCount === 0) {
+                    emit({ error: 'cloudflare_blocked' });
+                } else {
+                    emit({ done: true, found: foundCount, total: count });
+                }
+            } catch (err) {
+                console.error('Videos SSE Error:', err instanceof Error ? err.message.substring(0, 100) : 'Unknown');
+                emit({ error: 'internal_error' });
+            } finally {
+                controller.close();
             }
+        },
+    });
 
-            const batchResults = await Promise.all(batchPromises);
-            results.push(...batchResults);
-        }
-
-        // Filter out nulls and return only successful results
-        const videos = results
-            .filter(r => r.url !== null)
-            .sort((a, b) => a.q - b.q);
-
-        return NextResponse.json({
-            success: true,
-            testId,
-            videos,
-            total: count,
-            found: videos.length
-        });
-
-    } catch (error) {
-        console.error('Batch Video Error:', error instanceof Error ? error.message.substring(0, 100) : 'Unknown');
-        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
-    }
-}
-
-async function fetchVideoUrl(
-    url: string,
-    headers: Record<string, string>,
-    testId: string,
-    soruId: number
-): Promise<VideoResult> {
-    try {
-        const body = `tur=2&sinavId=0&sinavTuru=2&testId=${testId}&soruId=${soruId}`;
-
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                ...headers,
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
-            },
-            body
-        });
-
-        if (!response.ok) {
-            return { q: soruId, url: null };
-        }
-
-        const html = await response.text();
-
-        // Extract video URL — same logic as /api/video
-        let videoUrl: string | null = null;
-
-        // Pattern 1: <video ... src="...">
-        const videoSrcMatch = html.match(/<video[^>]*src="([^"]+)"/i);
-        if (videoSrcMatch) videoUrl = videoSrcMatch[1];
-
-        // Pattern 2: <source src="..."> inside video
-        if (!videoUrl) {
-            const sourceSrcMatch = html.match(/<source[^>]*src="([^"]+)"/i);
-            if (sourceSrcMatch) videoUrl = sourceSrcMatch[1];
-        }
-
-        // Pattern 3: direct .mp4 links
-        if (!videoUrl) {
-            const mp4Match = html.match(/"([^"]+\.mp4)"/);
-            if (mp4Match) videoUrl = mp4Match[1];
-        }
-
-        return { q: soruId, url: videoUrl };
-    } catch {
-        return { q: soruId, url: null };
-    }
+    return new Response(stream, {
+        headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-cache, no-transform',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no',
+        },
+    });
 }

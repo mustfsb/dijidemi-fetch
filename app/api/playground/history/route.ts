@@ -10,8 +10,7 @@ const MAX_IDS_LENGTH = 4000;
 const MAX_MESSAGES = 200;
 
 interface IdentityContext {
-    primaryUsername: string;
-    candidates: string[];
+    displayUsername: string;
 }
 
 function safeString(value: unknown, maxLength: number): string | null {
@@ -22,9 +21,6 @@ function safeString(value: unknown, maxLength: number): string | null {
 }
 
 async function resolveIdentity(userId: string): Promise<IdentityContext> {
-    const candidates = new Set<string>([userId]);
-    let primaryUsername = userId;
-
     const { data: userRecord } = await supabase
         .from('users')
         .select('username, external_id')
@@ -34,18 +30,8 @@ async function resolveIdentity(userId: string): Promise<IdentityContext> {
     const username = typeof userRecord?.username === 'string' ? userRecord.username.trim() : '';
     const externalId = typeof userRecord?.external_id === 'string' ? userRecord.external_id.trim() : '';
 
-    if (username) {
-        primaryUsername = username;
-        candidates.add(username);
-    }
-    if (externalId) {
-        if (!username) primaryUsername = externalId;
-        candidates.add(externalId);
-    }
-
     return {
-        primaryUsername,
-        candidates: Array.from(candidates).slice(0, 8),
+        displayUsername: username || externalId || userId,
     };
 }
 
@@ -55,16 +41,15 @@ function sanitizeMessages(value: unknown): unknown[] {
 }
 
 export async function GET(request: NextRequest) {
-    const auth = requireAuth(request);
+    const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
 
     const ip = getClientIp(request);
-    if (!RateLimits.GENERAL(ip, `playground-history:${auth.userId}`)) {
+    if (!(await RateLimits.GENERAL(ip, `playground-history:${auth.userId}`))) {
         return NextResponse.json({ error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
     }
 
     try {
-        const identity = await resolveIdentity(auth.userId);
         const { searchParams } = new URL(request.url);
         const sessionId = searchParams.get('sessionId');
         const limitRaw = Number.parseInt(searchParams.get('limit') || '50', 10);
@@ -75,7 +60,7 @@ export async function GET(request: NextRequest) {
                 .from('ai_log')
                 .select('*')
                 .eq('id', sessionId)
-                .in('username', identity.candidates)
+                .eq('user_id', auth.userId)
                 .maybeSingle();
 
             if (error) throw error;
@@ -88,7 +73,7 @@ export async function GET(request: NextRequest) {
         const { data, error } = await supabase
             .from('ai_log')
             .select('id, session_title, title, user_prompt, image_ids, created_at')
-            .in('username', identity.candidates)
+            .eq('user_id', auth.userId)
             .order('created_at', { ascending: false })
             .limit(limit);
 
@@ -101,11 +86,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-    const auth = requireAuth(request);
+    const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
 
     const ip = getClientIp(request);
-    if (!RateLimits.GENERAL(ip, `playground-history:${auth.userId}`)) {
+    if (!(await RateLimits.GENERAL(ip, `playground-history:${auth.userId}`))) {
         return NextResponse.json({ error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
     }
 
@@ -140,7 +125,8 @@ export async function POST(request: NextRequest) {
         const { data, error } = await supabase
             .from('ai_log')
             .insert([{
-                username: identity.primaryUsername,
+                user_id: auth.userId,
+                username: identity.displayUsername,
                 user_prompt: userPrompt,
                 ai_response: aiResponse,
                 messages,
@@ -162,11 +148,11 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-    const auth = requireAuth(request);
+    const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
 
     const ip = getClientIp(request);
-    if (!RateLimits.GENERAL(ip, `playground-history:${auth.userId}`)) {
+    if (!(await RateLimits.GENERAL(ip, `playground-history:${auth.userId}`))) {
         return NextResponse.json({ error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
     }
 
@@ -182,12 +168,11 @@ export async function PATCH(request: NextRequest) {
             return NextResponse.json({ error: 'id is required' }, { status: 400 });
         }
 
-        const identity = await resolveIdentity(auth.userId);
         const { data: ownedSession } = await supabase
             .from('ai_log')
             .select('id')
             .eq('id', sessionId)
-            .in('username', identity.candidates)
+            .eq('user_id', auth.userId)
             .maybeSingle();
 
         if (!ownedSession) {
@@ -243,7 +228,8 @@ export async function PATCH(request: NextRequest) {
         const { error } = await supabase
             .from('ai_log')
             .update(updates)
-            .eq('id', sessionId);
+            .eq('id', sessionId)
+            .eq('user_id', auth.userId);
 
         if (error) throw error;
         return NextResponse.json({ success: true, id: sessionId });
@@ -254,11 +240,11 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-    const auth = requireAuth(request);
+    const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
 
     const ip = getClientIp(request);
-    if (!RateLimits.GENERAL(ip, `playground-history:${auth.userId}`)) {
+    if (!(await RateLimits.GENERAL(ip, `playground-history:${auth.userId}`))) {
         return NextResponse.json({ error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
     }
 
@@ -269,12 +255,11 @@ export async function DELETE(request: NextRequest) {
             return NextResponse.json({ error: 'id is required' }, { status: 400 });
         }
 
-        const identity = await resolveIdentity(auth.userId);
         const { data: ownedSession } = await supabase
             .from('ai_log')
             .select('id')
             .eq('id', sessionId)
-            .in('username', identity.candidates)
+            .eq('user_id', auth.userId)
             .maybeSingle();
 
         if (!ownedSession) {
@@ -284,7 +269,8 @@ export async function DELETE(request: NextRequest) {
         const { error } = await supabase
             .from('ai_log')
             .delete()
-            .eq('id', sessionId);
+            .eq('id', sessionId)
+            .eq('user_id', auth.userId);
 
         if (error) throw error;
         return NextResponse.json({ success: true });

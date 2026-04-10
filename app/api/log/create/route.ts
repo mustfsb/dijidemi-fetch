@@ -6,12 +6,12 @@ import { RateLimits } from '@/lib/rate-limit';
 export async function POST(request: NextRequest) {
   try {
     // Auth check
-    const auth = requireAuth(request);
+    const auth = await requireAuth(request);
     if (auth instanceof NextResponse) return auth;
 
     // Rate limit
     const ip = getClientIp(request);
-    if (!RateLimits.GENERAL(ip, auth.userId)) {
+    if (!(await RateLimits.GENERAL(ip, auth.userId))) {
         return NextResponse.json({ error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
     }
 
