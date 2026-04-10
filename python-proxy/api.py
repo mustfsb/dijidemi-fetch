@@ -43,6 +43,7 @@ async def get_cookies_via_browser():
     # Headless=False olmak zorunda, aksi takdirde Cloudflare engeller
     browser = await uc.start(
         headless=False,
+        sandbox=False,  # Linux'ta root olarak calisirken bu sarttir (no_sandbox)
         browser_args=[
             '--no-sandbox',
             '--disable-gpu',
