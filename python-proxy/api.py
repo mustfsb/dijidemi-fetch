@@ -48,11 +48,15 @@ def get_cookies_via_browser():
     page.get('https://www.dijidemi.com/Login')
     
     print("[LOG] Sayfanin yuklenmesi bekleniyor...")
-    time.sleep(3)
+    time.sleep(5)
     
-    if "Just a moment" in page.title or "Cloudflare" in page.title:
-        print("[UYARI] Cloudflare korumasindayiz, gecilmesi bekleniyor...")
-        time.sleep(15) 
+    cf_wait_time = 0
+    while ("Just a moment" in page.title or "Cloudflare" in page.title or "Attention Required" in page.title) and cf_wait_time < 45:
+        print(f"[UYARI] Cloudflare korumasindayiz, gecilmesi bekleniyor... ({cf_wait_time} sn)")
+        time.sleep(3)
+        cf_wait_time += 3
+        
+    print(f"[LOG] Cloudflare sonrasi baslik: {page.title}, URL: {page.url}")
     
     if "/Ogrenci" in page.url or "Öğrenci Anasayfa" in page.title:
         print("[BASARILI] Zaten giris yapilmis durumda...")
