@@ -11,9 +11,9 @@ import {
     PRIVATE_TEST_UID_COOKIE,
     signUserId,
 } from '@/lib/private-test/device-gate';
-import { DijidemiLoginError, playwrightService } from '@/lib/cookie/playwrightService';
 import { syncDijidemiUserToDatabase } from '@/lib/auth/syncDijidemiUser';
 import { localDijidemiBrowserManager } from '@/lib/dijidemi/localBrowserManager';
+import cookieManager from '@/lib/cookie/cookieManager';
 
 interface LoginBody {
     username: string;
@@ -70,12 +70,34 @@ export async function POST(request: NextRequest): Promise<NextResponse<LoginApiR
             }, { status: 202 });
         }
 
-        const upstreamCookies = await playwrightService.getFreshCookies({
-            username: trimmedUsername,
-            password: trimmedPassword,
-        });
+        // Production: validate against env vars, then check Supabase for a live session.
+        // Never contact dijidemi.com from Lambda — cf_clearance is IP-bound and Lambda IPs are blocked.
+        const expectedUsername = process.env.DIJIDEMI_USERNAME?.trim();
+        const expectedPassword = process.env.DIJIDEMI_PASSWORD?.trim();
 
-        // Return success with the cookies
+        if (!expectedUsername || !expectedPassword) {
+            return NextResponse.json({ error: 'Sunucu kullanıcı bilgileri yapılandırılmamış.' }, { status: 500 });
+        }
+
+        if (trimmedUsername !== expectedUsername || trimmedPassword !== expectedPassword) {
+            return NextResponse.json({ error: 'Kullanıcı adı veya şifre hatalı.' }, { status: 401 });
+        }
+
+        // Verify that a seeded automation session exists in Supabase
+        const automationCookies = await cookieManager.getCookies();
+        const hasSession = automationCookies.some(c => c.name === 'ASP.NET_SessionId' && c.value);
+        if (!hasSession) {
+            return NextResponse.json({
+                error: 'Dijidemi oturumu bulunamadı. Lütfen yerel makinede "npm run seed-cookies" çalıştırın.',
+            }, { status: 503 });
+        }
+
+        // Build a cookie map for upstream cookie headers
+        const upstreamCookies = automationCookies.reduce<Record<string, string>>((acc, c) => {
+            acc[c.name] = c.value;
+            return acc;
+        }, {});
+
         // --- USER SYNC: Check & Create ---
         const userId = await syncDijidemiUserToDatabase(trimmedUsername, request);
         if (!userId) {
@@ -109,16 +131,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<LoginApiR
         return response;
 
     } catch (error) {
-        if (error instanceof DijidemiLoginError) {
-            const status = error.code === 'invalid_credentials'
-                ? 401
-                : error.code === 'browser_missing' || error.code === 'challenge_failed'
-                    ? 503
-                    : 502;
-
-            return NextResponse.json({ error: error.message }, { status });
-        }
-
         console.error('Login Error:', error instanceof Error ? error.message.substring(0, 100) : 'Unknown');
         return NextResponse.json({ error: 'Giriş sırasında bir hata oluştu.' }, { status: 500 });
     }

@@ -146,6 +146,16 @@ class CookieManager {
             return;
         }
 
+        // On Lambda, we cannot launch a browser to refresh cookies.
+        // Cookies must be seeded from a local machine via `npm run seed-cookies`.
+        const isLambda = Boolean(process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME);
+        if (isLambda) {
+            if (!this.hasCriticalCookies()) {
+                console.warn('CookieManager: Lambda ortamında cookie yenilemesi yapılamaz. Yerel makinede "npm run seed-cookies" çalıştırın.');
+            }
+            return;
+        }
+
         // Avoid multiple simultaneous refreshes
         if (this.isRefreshing) {
             if (this.refreshPromise) await this.refreshPromise;
@@ -203,9 +213,15 @@ class CookieManager {
             .map(([name, value]) => ({ name, value }));
     }
 
-    // Called by Cron Job — always performs a real refresh regardless of lastCookieUpdateAt
+    // Called by Cron Job — reloads cookies from Supabase on Lambda (can't launch browser there),
+    // or runs a full Playwright refresh in local dev.
     async refreshCookies(): Promise<void> {
         this.cachedHeaders = null;
+        const isLambda = Boolean(process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME);
+        if (isLambda) {
+            await this.loadFromSupabase();
+            return;
+        }
         this.lastCookieUpdateAt = 0; // Reset so shouldRefreshSharedCookies always returns true
         await this.ensureValidCookies(true);
     }
