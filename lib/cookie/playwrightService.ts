@@ -74,7 +74,13 @@ class PlaywrightService {
 
         try {
             browser = await this.launchBrowser(timings.isLambda);
-            const context = await this.createContext(browser);
+
+            // On Lambda/Netlify, pre-load the existing cf_clearance from Supabase so that
+            // Cloudflare recognises the headless browser as a known session. Without this,
+            // every Lambda login attempt triggers a fresh Cloudflare challenge that cannot
+            // be solved programmatically.
+            const preCfClearance = timings.isLambda ? await this.loadCfClearanceFromSupabase() : null;
+            const context = await this.createContext(browser, preCfClearance);
 
             const page = await context.newPage();
             await this.ensureLoginForm(page, timings);
@@ -175,7 +181,33 @@ class PlaywrightService {
         }
     }
 
-    private async createContext(browser: Browser): Promise<BrowserContext> {
+    private async loadCfClearanceFromSupabase(): Promise<string | null> {
+        try {
+            const { supabase } = await import('@/lib/db/supabase');
+            const { data } = await supabase
+                .from('auth_cookies')
+                .select('cookie_json')
+                .order('updated_at', { ascending: false })
+                .limit(1)
+                .single();
+
+            if (data?.cookie_json) {
+                const parsed = typeof data.cookie_json === 'string'
+                    ? JSON.parse(data.cookie_json)
+                    : data.cookie_json;
+                const cfClearance = parsed['cf_clearance'];
+                if (cfClearance) {
+                    console.log('[PlaywrightService] Pre-loading cf_clearance from Supabase.');
+                    return cfClearance;
+                }
+            }
+        } catch (err) {
+            console.warn('[PlaywrightService] Could not load cf_clearance from Supabase:', err);
+        }
+        return null;
+    }
+
+    private async createContext(browser: Browser, preCfClearance?: string | null): Promise<BrowserContext> {
         const context = await browser.newContext({
             userAgent: PlaywrightService.USER_AGENT,
             viewport: { width: 1280, height: 720 },
@@ -188,6 +220,18 @@ class PlaywrightService {
         await context.setExtraHTTPHeaders({
             'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
         });
+
+        if (preCfClearance) {
+            await context.addCookies([{
+                name: 'cf_clearance',
+                value: preCfClearance,
+                domain: '.dijidemi.com',
+                path: '/',
+                httpOnly: false,
+                secure: true,
+                sameSite: 'None',
+            }]);
+        }
 
         return context;
     }

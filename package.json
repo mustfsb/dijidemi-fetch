@@ -6,6 +6,7 @@
     "dev": "next dev",
     "analyze": "tsx scripts/update-program.ts",
     "smoke:local": "tsx scripts/smoke-local-dijidemi.ts",
+    "seed-cookies": "tsx scripts/seed-cookies.ts",
     "build": "tsx scripts/update-program.ts && next build",
     "start": "next start",
     "lint": "next lint",
