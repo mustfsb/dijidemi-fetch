@@ -31,106 +31,85 @@ class TestRequest(BaseModel):
 
 import random
 
-def get_cookies_via_browser():
-    print("[LOG] Tarayici baslatiliyor ve Cloudflare / Login kontrolu yapiliyor...")
-    co = ChromiumOptions()
-    
-    # Her zaman headless=False olmali (Cloudflare'i gecmek icin)
-    co.headless(False)
-    
-    # Anti-Bot ve Docker/Linux sunucu ayarlari
-    co.set_argument('--no-sandbox')
-    co.set_argument('--disable-gpu')
-    co.set_argument('--disable-dev-shm-usage') # Docker bellek limitleri icin cok onemli
-    co.set_argument('--window-size=1280,720')
-    co.set_argument('--disable-blink-features=AutomationControlled')
-    # NOT: User-Agent'i elle BELIRLEMIYORUZ! Aksi takdirde TLS parmak iziyle uyusmaz ve CF sonsuz donguye sokar.
-    
-    page = None
-    try:
-        page = ChromiumPage(addr_or_opts=co)
-        page.get('https://www.dijidemi.com/Login')
-        
-        print("[LOG] Sayfanin yuklenmesi bekleniyor...")
-        time.sleep(5)
-        
-        cf_wait_time = 0
-        while ("Just a moment" in page.title or "Cloudflare" in page.title or "Attention Required" in page.title) and cf_wait_time < 45:
-            print(f"[UYARI] Cloudflare korumasindayiz, gecilmesi bekleniyor... ({cf_wait_time} sn)")
-            time.sleep(3)
-            cf_wait_time += 3
-            
-            # Bot algilanmamak icin sayfa ici hareketler ve gercek tiklama
-            try:
-                # 1. Rastgele kaydirma
-                page.run_js(f'window.scrollTo(0, {random.randint(10, 300)});')
-                
-                # 2. Iframe icine girip gercek checkbox'a tiklamak
-                cf_iframe = page.get_frame('@src^https://challenges.cloudflare.com', timeout=2)
-                if cf_iframe:
-                    # Cloudflare Turnstile bileseni farkli class'lar kullanabilir
-                    checkbox = cf_iframe.ele('.cb-c', timeout=1) or cf_iframe.ele('.mark', timeout=1) or cf_iframe.ele('.ctp-checkbox-label', timeout=1)
-                    
-                    if checkbox:
-                        checkbox.click()
-                        print("[LOG] Cloudflare Checkbox'ina TIKLANDI!")
-                        time.sleep(2)
-            except Exception as e:
-                pass
-                
-        print(f"[LOG] Cloudflare sonrasi baslik: {page.title}, URL: {page.url}")
-        
-        if "Just a moment" in page.title or "Cloudflare" in page.title:
-            print("[HATA] Cloudflare aşılamadı, islem iptal ediliyor.")
-            return None
-        
-        if "/Ogrenci" in page.url or "Öğrenci Anasayfa" in page.title:
-            print("[BASARILI] Zaten giris yapilmis durumda...")
-        else:
-            username_input = page.ele('@id=txtUserName', timeout=15)
-            if not username_input:
-                if "/Ogrenci" in page.url:
-                    print("[BASARILI] Yonlendirme yakalandi!")
-                else:
-                    return None
-            else:
-                try:
-                    username_input.input('14308-1651')
-                    password_input = page.ele('@id=txtPassword')
-                    password_input.input('175F7')
-                    btn = page.ele('@id=btnLogin', timeout=5)
-                    if btn:
-                        btn.click()
-                    else:
-                        password_input.input('\n')
-                except Exception as e:
-                    pass
-                
-                try:
-                    page.ele('xpath://a[contains(@href, "/Ogrenci")]', timeout=15)
-                except:
-                    time.sleep(3)
-        
-        raw_cookies = page.cookies()
-        cookies = {}
-        if isinstance(raw_cookies, list):
-            for c in raw_cookies:
-                if 'name' in c and 'value' in c:
-                    cookies[c['name']] = c['value']
-        elif isinstance(raw_cookies, dict):
-            cookies = raw_cookies
-            
-        user_agent = page.user_agent
-        
-        return {"cookies": cookies, "user_agent": user_agent}
+import urllib.parse
 
-    finally:
-        # Hata olsa bile tarayiciyi KESINLIKLE kapat ki RAM sismesin (Disconnected hatasini onler)
-        if page:
-            try:
-                page.quit()
-            except:
-                pass
+def get_cookies_via_browser():
+    print("[LOG] curl_cffi ile Cloudflare bypass ve Login islemi baslatiliyor...")
+    
+    # 1. Asama: Ana sayfaya gidip Cloudflare'i gecmek ve ilk session cerezlerini almak
+    session = requests.Session(impersonate="chrome120")
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Upgrade-Insecure-Requests": "1"
+    }
+    
+    try:
+        print("[LOG] 1. Adim: https://www.dijidemi.com/Login adresine istek atiliyor...")
+        response = session.get('https://www.dijidemi.com/Login', headers=headers, timeout=30)
+        
+        # Cloudflare JavaScript challenge veya Just a moment sayfasindaysak, curl_cffi bazen otomatik cozer
+        if "Just a moment" in response.text or "Cloudflare" in response.text:
+            print("[UYARI] Cloudflare challenge sayfasindayiz. curl_cffi'nin cozmesi bekleniyor (5 sn)...")
+            time.sleep(5)
+            # Tekrar istek atarak challenge'i gecmis mi diye kontrol edelim
+            response = session.get('https://www.dijidemi.com/Login', headers=headers, timeout=30)
+            
+        print(f"[LOG] Login sayfasi yaniti: {response.status_code}")
+        
+        # 2. Asama: HTML icerisinden __RequestVerificationToken (ASP.NET guvenlik tokeni) bulmak
+        # Geleneksel ASP.NET MVC uygulamalarinda POST yapabilmek icin bu token sarttir.
+        import re
+        token_match = re.search(r'<input name="__RequestVerificationToken" type="hidden" value="([^"]+)"', response.text)
+        
+        if not token_match:
+            print("[HATA] __RequestVerificationToken bulunamadi! Sayfa icerigi Cloudflare tarafindan engellenmis olabilir.")
+            return None
+            
+        verification_token = token_match.group(1)
+        print(f"[LOG] Token bulundu: {verification_token[:10]}...")
+        
+        # 3. Asama: Login POST istegi
+        print("[LOG] 2. Adim: Giris bilgileri POST ediliyor...")
+        
+        login_data = {
+            "__RequestVerificationToken": verification_token,
+            "ReturnUrl": "",
+            "UserName": "14308-1651",
+            "Password": "175F7"
+        }
+        
+        post_headers = headers.copy()
+        post_headers["Content-Type"] = "application/x-www-form-urlencoded"
+        post_headers["Origin"] = "https://www.dijidemi.com"
+        post_headers["Referer"] = "https://www.dijidemi.com/Login"
+        
+        # Form verisini URL encoded formata ceviriyoruz
+        encoded_data = urllib.parse.urlencode(login_data)
+        
+        post_response = session.post('https://www.dijidemi.com/Login', data=encoded_data, headers=post_headers, allow_redirects=False, timeout=30)
+        
+        print(f"[LOG] POST yaniti: {post_response.status_code}")
+        
+        # 4. Asama: Basarili giris kontrolu (Genelde 302 yonlendirmesi veya cookies'de .ASPXAUTH/.AspNetCore.Cookies)
+        cookies = session.cookies.get_dict()
+        
+        if post_response.status_code in [301, 302] or ".ASPXAUTH" in cookies or "ASP.NET_SessionId" in cookies:
+            print(f"[BASARILI] Giris yapildi! Yonlendirme URL: {post_response.headers.get('Location', 'Bilinmiyor')}")
+            return {
+                "cookies": cookies,
+                "user_agent": headers["User-Agent"]
+            }
+        else:
+            print("[HATA] Giris basarisiz oldu. Yanlista bilgiler veya Cloudflare engeli olabilir.")
+            print(f"[DEBUG] Gelen Cerezler: {cookies}")
+            return None
+            
+    except Exception as e:
+        print(f"[EXCEPTION] curl_cffi istegi sirasinda hata: {str(e)}")
+        return None
 
 def update_cookies_to_supabase(cookie_data):
     data = {
