@@ -36,13 +36,13 @@ def get_cookies_via_browser():
     # Her zaman headless=False olmali (Cloudflare'i gecmek icin)
     co.headless(False)
     
-    # Docker/Linux sunucu ayarlari
+    # Anti-Bot ve Docker/Linux sunucu ayarlari
     co.set_argument('--no-sandbox')
     co.set_argument('--disable-gpu')
     co.set_argument('--disable-dev-shm-usage') # Docker bellek limitleri icin cok onemli
-    co.set_argument('--window-position=-3000,-3000')
-    co.set_argument('--window-size=800,600')
+    co.set_argument('--window-size=1280,720')
     co.set_argument('--disable-blink-features=AutomationControlled')
+    co.set_user_agent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
     
     page = ChromiumPage(addr_or_opts=co)
     page.get('https://www.dijidemi.com/Login')
@@ -51,11 +51,22 @@ def get_cookies_via_browser():
     time.sleep(5)
     
     cf_wait_time = 0
-    while ("Just a moment" in page.title or "Cloudflare" in page.title or "Attention Required" in page.title) and cf_wait_time < 45:
+    while ("Just a moment" in page.title or "Cloudflare" in page.title or "Attention Required" in page.title) and cf_wait_time < 60:
         print(f"[UYARI] Cloudflare korumasindayiz, gecilmesi bekleniyor... ({cf_wait_time} sn)")
         time.sleep(3)
         cf_wait_time += 3
         
+        # Bot algilanmamak icin sayfada hafif asagi yukari kaydirma yapalim
+        try:
+            page.run_js('window.scrollTo(0, Math.random() * 200);')
+            
+            # Eger ekranda tiklanmasi gereken bir Cloudflare (Turnstile) kutusu varsa tiklamaya calis:
+            cf_iframe = page.ele('xpath://iframe[contains(@src, "cloudflare")]', timeout=1)
+            if cf_iframe:
+                cf_iframe.click(by_js=True)
+        except:
+            pass
+            
     print(f"[LOG] Cloudflare sonrasi baslik: {page.title}, URL: {page.url}")
     
     if "/Ogrenci" in page.url or "Öğrenci Anasayfa" in page.title:
