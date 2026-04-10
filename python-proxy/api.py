@@ -31,105 +31,121 @@ class TestRequest(BaseModel):
 
 import random
 
-import urllib.parse
+import asyncio
+import nodriver as uc
+from contextlib import asynccontextmanager
 
-def get_cookies_via_browser():
-    print("[LOG] curl_cffi ile Cloudflare bypass ve Login islemi baslatiliyor...")
+async def get_cookies_via_browser():
+    print("[LOG] nodriver (Undetected) ile Cloudflare / Login kontrolu baslatiliyor...")
     
-    # 1. Asama: Ana sayfaya gidip Cloudflare'i gecmek ve ilk session cerezlerini almak
-    session = requests.Session(impersonate="chrome120")
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Upgrade-Insecure-Requests": "1"
-    }
+    # nodriver her zaman asenkron (async) calisir
+    # Headless=False olmak zorunda, aksi takdirde Cloudflare engeller
+    browser = await uc.start(
+        headless=False,
+        browser_args=[
+            '--no-sandbox',
+            '--disable-gpu',
+            '--disable-dev-shm-usage',
+            '--window-size=1280,720',
+            '--disable-blink-features=AutomationControlled'
+        ]
+    )
     
     try:
-        print("[LOG] 1. Adim: https://www.dijidemi.com/Login adresine istek atiliyor...")
-        response = session.get('https://www.dijidemi.com/Login', headers=headers, timeout=30)
+        page = await browser.get('https://www.dijidemi.com/Login')
+        print("[LOG] Sayfanin yuklenmesi bekleniyor...")
+        await asyncio.sleep(5)
         
-        # Cloudflare JavaScript challenge veya Just a moment sayfasindaysak, curl_cffi bazen otomatik cozer
-        if "Just a moment" in response.text or "Cloudflare" in response.text:
-            print("[UYARI] Cloudflare challenge sayfasindayiz. curl_cffi'nin cozmesi bekleniyor (5 sn)...")
-            time.sleep(5)
-            # Tekrar istek atarak challenge'i gecmis mi diye kontrol edelim
-            response = session.get('https://www.dijidemi.com/Login', headers=headers, timeout=30)
-            
-        print(f"[LOG] Login sayfasi yaniti: {response.status_code}")
+        # 1. Asama: Cloudflare Kontrolu
+        cf_wait_time = 0
+        while cf_wait_time < 45:
+            # title'i veya HTML'yi al
+            html = await page.get_content()
+            if "Just a moment" in html or "Cloudflare" in html or "Attention Required" in html:
+                print(f"[UYARI] Cloudflare korumasindayiz, gecilmesi bekleniyor... ({cf_wait_time} sn)")
+                await asyncio.sleep(3)
+                cf_wait_time += 3
+                
+                # Cloudflare (Turnstile) kutusuna tiklamayi dene
+                try:
+                    # Iframe'leri bul
+                    iframes = await page.find_elements('iframe')
+                    for iframe in iframes:
+                        if 'cloudflare' in (await iframe.get_attribute('src') or ''):
+                            print("[LOG] Cloudflare iframe bulundu, Turnstile tiklamasi deneniyor...")
+                            # Iframe icindeki ctp-checkbox-label veya cb-c classini bulup tiklamak
+                            # (nodriver iframe icine girmeyi destekler, ancak biz tiklamayi koordinat veya gorsel uzerinden deneyebiliriz)
+                            # Cogu zaman nodriver kullandigimiz icin Cloudflare kutu cikarmaz veya oto-gecer.
+                            try:
+                                await iframe.click()
+                                print("[LOG] Iframe'e tiklandi.")
+                                await asyncio.sleep(2)
+                            except:
+                                pass
+                except Exception as e:
+                    pass
+            else:
+                break
+                
+        print(f"[LOG] Cloudflare sonrasi sayfa HTML'i kontrol edildi. (Bekleme suresi: {cf_wait_time}sn)")
         
-        # 2. Asama: HTML icerisinden __RequestVerificationToken (ASP.NET guvenlik tokeni) bulmak
-        # Geleneksel ASP.NET MVC uygulamalarinda POST yapabilmek icin bu token sarttir.
-        import re
-        token_match = re.search(r'<input name="__RequestVerificationToken" type="hidden" value="([^"]+)"', response.text)
-        
-        if not token_match:
-            print("[HATA] __RequestVerificationToken bulunamadi! Sayfa icerigi Cloudflare tarafindan engellenmis olabilir.")
-            return None
-            
-        verification_token = token_match.group(1)
-        print(f"[LOG] Token bulundu: {verification_token[:10]}...")
-        
-        # 3. Asama: Login POST istegi
-        print("[LOG] 2. Adim: Giris bilgileri POST ediliyor...")
-        
-        login_data = {
-            "__RequestVerificationToken": verification_token,
-            "ReturnUrl": "",
-            "UserName": "14308-1651",
-            "Password": "175F7"
-        }
-        
-        post_headers = headers.copy()
-        post_headers["Content-Type"] = "application/x-www-form-urlencoded"
-        post_headers["Origin"] = "https://www.dijidemi.com"
-        post_headers["Referer"] = "https://www.dijidemi.com/Login"
-        
-        # Form verisini URL encoded formata ceviriyoruz
-        encoded_data = urllib.parse.urlencode(login_data)
-        
-        post_response = session.post('https://www.dijidemi.com/Login', data=encoded_data, headers=post_headers, allow_redirects=False, timeout=30)
-        
-        print(f"[LOG] POST yaniti: {post_response.status_code}")
-        
-        # 4. Asama: Basarili giris kontrolu (Genelde 302 yonlendirmesi veya cookies'de .ASPXAUTH/.AspNetCore.Cookies)
-        cookies = session.cookies.get_dict()
-        
-        if post_response.status_code in [301, 302] or ".ASPXAUTH" in cookies or "ASP.NET_SessionId" in cookies:
-            print(f"[BASARILI] Giris yapildi! Yonlendirme URL: {post_response.headers.get('Location', 'Bilinmiyor')}")
-            return {
-                "cookies": cookies,
-                "user_agent": headers["User-Agent"]
-            }
+        # 2. Asama: Login formunu bul ve doldur
+        html = await page.get_content()
+        if "/Ogrenci" in await page.evaluate('window.location.href') or "Öğrenci Anasayfa" in html:
+            print("[BASARILI] Zaten giris yapilmis durumda...")
         else:
-            print("[HATA] Giris basarisiz oldu. Yanlista bilgiler veya Cloudflare engeli olabilir.")
-            print(f"[DEBUG] Gelen Cerezler: {cookies}")
-            return None
+            try:
+                # Kullanici adi inputunu bul
+                username_input = await page.select('#txtUserName', timeout=10)
+                if not username_input:
+                    if "/Ogrenci" in await page.evaluate('window.location.href'):
+                        print("[BASARILI] Yonlendirme yakalandi!")
+                    else:
+                        print("[HATA] txtUserName bulunamadi. Sayfa engellenmis olabilir.")
+                        return None
+                else:
+                    await username_input.send_keys('14308-1651')
+                    
+                    password_input = await page.select('#txtPassword')
+                    await password_input.send_keys('175F7')
+                    
+                    btn = await page.select('#btnLogin')
+                    if btn:
+                        await btn.click()
+                    else:
+                        await password_input.send_keys('\n')
+                        
+                    print("[LOG] Giris bilgileri gonderildi, yonlendirme bekleniyor...")
+                    await asyncio.sleep(5)
+            except Exception as e:
+                print(f"[EXCEPTION] Login form islemlerinde hata: {str(e)}")
+        
+        # 3. Asama: Cerezleri (Cookies) topla
+        # nodriver ile network kismindan cerezleri aliyoruz
+        raw_cookies = await browser.cookies.get_all()
+        cookies = {}
+        for c in raw_cookies:
+            cookies[c.name] = c.value
             
+        user_agent = await page.evaluate('navigator.userAgent')
+        print(f"[BASARILI] Cerezler alindi: {len(cookies)} adet. UA: {user_agent}")
+        
+        return {"cookies": cookies, "user_agent": user_agent}
+
     except Exception as e:
-        print(f"[EXCEPTION] curl_cffi istegi sirasinda hata: {str(e)}")
+        print(f"[CRITICAL HATA] nodriver isleminde cokme: {str(e)}")
         return None
+    finally:
+        # Ne olursa olsun tarayiciyi kapat (Bellek sizintisini onler)
+        if browser:
+            try:
+                browser.stop()
+            except:
+                pass
 
-def update_cookies_to_supabase(cookie_data):
-    data = {
-        "cookie_json": json.dumps(cookie_data),
-        "updated_at": datetime.now(timezone.utc).isoformat()
-    }
-    supabase.table("auth_cookies").upsert({"id": 1, **data}).execute()
-
-def fetch_cookies_from_supabase():
+async def run_browser_update():
     try:
-        response = supabase.table("auth_cookies").select("cookie_json").eq("id", 1).execute()
-        if response.data and response.data[0].get("cookie_json"):
-            return json.loads(response.data[0]["cookie_json"])
-    except Exception:
-        pass
-    return None
-
-def run_browser_update():
-    try:
-        cookie_data = get_cookies_via_browser()
+        cookie_data = await get_cookies_via_browser()
         if cookie_data:
             update_cookies_to_supabase(cookie_data)
             print("[BACKGROUND] Cerezler basariyla yenilendi ve Supabase'e kaydedildi.")
@@ -139,14 +155,14 @@ def run_browser_update():
         print(f"[BACKGROUND EXCEPTION] Tarayici isleminde hata: {str(e)}")
 
 @app.post("/api/refresh-cookies")
-def refresh_cookies(request: Request, background_tasks: BackgroundTasks):
+async def refresh_cookies(request: Request, background_tasks: BackgroundTasks):
     auth_header = request.headers.get("Authorization")
     if auth_header != "Bearer Sude2003!":
         raise HTTPException(status_code=401, detail="Unauthorized")
         
-    # Render yavas oldugu icin islemi arka plana atip cron-job.org'a hemen cevap donuyoruz
+    # Asenkron islemi background task olarak ekliyoruz
     background_tasks.add_task(run_browser_update)
-    return {"message": "Cerez yenileme islemi arka planda baslatildi.", "success": True}
+    return {"message": "Cerez yenileme islemi asenkron olarak (nodriver) baslatildi.", "success": True}
 
 @app.post("/api/proxy")
 async def proxy_request(request: Request):

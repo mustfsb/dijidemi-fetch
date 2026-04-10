@@ -1,6 +1,5 @@
-DrissionPage
+nodriver
 supabase
 python-dotenv
-curl_cffi
 fastapi
 uvicorn
