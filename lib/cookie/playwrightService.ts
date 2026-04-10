@@ -66,21 +66,23 @@ class PlaywrightService {
     }
 
     async getFreshCookies(credentials?: DijidemiLoginCredentials): Promise<CookieData> {
-        console.log('Starting Dijidemi login via Playwright...');
-
         const resolvedCredentials = this.resolveCredentials(credentials);
         const timings = this.getTimingConfig();
+
+        // On Lambda/Netlify, use direct HTTP (mobile UA) instead of a headless browser.
+        // Cloudflare's browser challenge cannot be solved by headless Chrome on AWS Lambda
+        // IPs because cf_clearance is IP-bound. The mobile app UA bypasses the browser
+        // challenge entirely as long as a valid cf_clearance is present in Supabase.
+        if (timings.isLambda) {
+            return this.getFreshCookiesViaDirectHttp(resolvedCredentials);
+        }
+
+        console.log('Starting Dijidemi login via Playwright (local)...');
         let browser: Browser | null = null;
 
         try {
-            browser = await this.launchBrowser(timings.isLambda);
-
-            // On Lambda/Netlify, pre-load the existing cf_clearance from Supabase so that
-            // Cloudflare recognises the headless browser as a known session. Without this,
-            // every Lambda login attempt triggers a fresh Cloudflare challenge that cannot
-            // be solved programmatically.
-            const preCfClearance = timings.isLambda ? await this.loadCfClearanceFromSupabase() : null;
-            const context = await this.createContext(browser, preCfClearance);
+            browser = await this.launchBrowser(false /* local */);
+            const context = await this.createContext(browser);
 
             const page = await context.newPage();
             await this.ensureLoginForm(page, timings);
@@ -124,6 +126,66 @@ class PlaywrightService {
                 await browser.close();
             }
         }
+    }
+
+    private async getFreshCookiesViaDirectHttp(credentials: DijidemiLoginCredentials): Promise<CookieData> {
+        console.log('[PlaywrightService] Lambda mode: using direct HTTP login (mobile UA)...');
+
+        // Load existing cookies (esp. cf_clearance) from Supabase
+        let existingCookies: Array<{ name: string; value: string }> = [];
+        try {
+            const { supabase } = await import('@/lib/db/supabase');
+            const { data } = await supabase
+                .from('auth_cookies')
+                .select('cookie_json')
+                .order('updated_at', { ascending: false })
+                .limit(1)
+                .single();
+
+            if (data?.cookie_json) {
+                const parsed = typeof data.cookie_json === 'string'
+                    ? JSON.parse(data.cookie_json)
+                    : data.cookie_json;
+                existingCookies = Object.entries(parsed)
+                    .filter(([, v]) => Boolean(v))
+                    .map(([name, value]) => ({ name, value: String(value) }));
+            }
+        } catch (err) {
+            console.warn('[PlaywrightService] Could not load existing cookies from Supabase:', err);
+        }
+
+        const hasCfClearance = existingCookies.some(c => c.name === 'cf_clearance' && c.value);
+        if (!hasCfClearance) {
+            throw new DijidemiLoginError(
+                'challenge_failed',
+                'Cloudflare oturumu bulunamadı. Lütfen yerel makinede "npm run seed-cookies" çalıştırın.'
+            );
+        }
+
+        const { directLoginDijidemi } = await import('@/lib/dijidemi/directFetch');
+        const result = await directLoginDijidemi(credentials.username, credentials.password, existingCookies);
+
+        if (!result.success) {
+            const code = (result.error ?? '').includes('şifre') ? 'invalid_credentials' : 'challenge_failed';
+            throw new DijidemiLoginError(code, result.error ?? 'Dijidemi giriş başarısız');
+        }
+
+        const cookies: CookieData = {
+            cf_clearance: result.cookies['cf_clearance'] ?? '',
+            'ASP.NET_SessionId': result.cookies['ASP.NET_SessionId'] ?? '',
+            usrtkn: result.cookies['usrtkn'] ?? '',
+            '.ASPXAUTH': result.cookies['.ASPXAUTH'] ?? '',
+        };
+
+        if (!cookies.cf_clearance || !cookies['ASP.NET_SessionId']) {
+            throw new DijidemiLoginError(
+                'challenge_failed',
+                'Dijidemi oturumu alınamadı. Yeni session cookie bulunamadı.'
+            );
+        }
+
+        console.log('[PlaywrightService] Direct HTTP login successful.');
+        return cookies;
     }
 
     private resolveCredentials(credentials?: DijidemiLoginCredentials): DijidemiLoginCredentials {

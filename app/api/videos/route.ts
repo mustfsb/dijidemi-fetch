@@ -6,7 +6,7 @@ import {
     createMissingDijidemiSessionResponse,
 } from '@/lib/auth';
 import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
-import { fetchManyViaBrowser } from '@/lib/dijidemi/productionBrowserManager';
+import { directFetchDijidemi } from '@/lib/dijidemi/directFetch';
 import cookieManager from '@/lib/cookie/cookieManager';
 import { RateLimits } from '@/lib/rate-limit';
 
@@ -118,39 +118,33 @@ export async function GET(request: NextRequest) {
                         }
                     }
                 } else {
-                    // Production mode: one browser context, all fetches in parallel
+                    // Production mode: direct HTTP fetches in parallel (mobile UA + stored cookies)
                     const cookies = await cookieManager.getCookies();
                     if (!cookies.some(c => c.name === 'cf_clearance' && c.value)) {
                         emit({ error: 'missing_session' });
                         return;
                     }
 
-                    const browserRequests = Array.from({ length: count }, (_, i) => ({
-                        url: videoUrl,
-                        method: 'POST' as const,
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                        body: new URLSearchParams({
-                            tur: '2', sinavId: '0', sinavTuru: '2',
-                            testId, soruId: String(i + 1),
-                        }).toString(),
-                        referrer: 'https://www.dijidemi.com/Ogrenci2020',
-                    }));
-
-                    await fetchManyViaBrowser(browserRequests, cookies, (index, result) => {
-                        if (!result) return;
-                        const soruId = index + 1;
-
-                        if (result.status === 403 && isChallengeHtml(result.body)) {
-                            blocked = true;
-                            return;
-                        }
-
-                        const url = extractVideoUrl(result.body);
-                        if (url) {
-                            foundCount++;
-                            emit({ q: soruId, url });
-                        }
-                    });
+                    await Promise.all(
+                        Array.from({ length: count }, async (_, i) => {
+                            const soruId = i + 1;
+                            try {
+                                const result = await directFetchDijidemi(videoUrl, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                                    body: new URLSearchParams({
+                                        tur: '2', sinavId: '0', sinavTuru: '2',
+                                        testId, soruId: String(soruId),
+                                    }).toString(),
+                                    cookies,
+                                    referrer: 'https://www.dijidemi.com/Ogrenci2020',
+                                });
+                                if (result.isCloudflareChallenge) { blocked = true; return; }
+                                const url = extractVideoUrl(result.body);
+                                if (url) { foundCount++; emit({ q: soruId, url }); }
+                            } catch { /* skip failed question */ }
+                        })
+                    );
                 }
 
                 if (blocked && foundCount === 0) {

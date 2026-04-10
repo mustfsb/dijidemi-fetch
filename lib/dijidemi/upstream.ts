@@ -4,7 +4,7 @@ import {
     createMissingDijidemiSessionResponse,
 } from '@/lib/auth';
 import { isLocalBrowserMode, localDijidemiBrowserManager } from '@/lib/dijidemi/localBrowserManager';
-import { fetchViaBrowser } from '@/lib/dijidemi/productionBrowserManager';
+import { directFetchDijidemi, type DirectFetchResult } from '@/lib/dijidemi/directFetch';
 import cookieManager from '@/lib/cookie/cookieManager';
 
 export class BufferedUpstreamResponse {
@@ -118,25 +118,38 @@ export async function requestDijidemiUpstream(
         return createMissingDijidemiSessionResponse();
     }
 
-    let result: { status: number; url: string; headers: Record<string, string>; body: string };
+    // Merge additionalCookies (per-request overrides) into the cookie list
+    const mergedCookies = additionalCookies
+        ? [
+            ...cookies,
+            ...Object.entries(additionalCookies)
+                .filter(([, v]) => v != null && v !== '')
+                .map(([name, value]) => ({ name, value: String(value) })),
+          ]
+        : cookies;
+
+    let result: DirectFetchResult;
     try {
-        result = await fetchViaBrowser(
-            { url, method, headers, body, additionalCookies, referrer },
-            cookies
-        );
+        result = await directFetchDijidemi(url, {
+            method,
+            headers,
+            body,
+            cookies: mergedCookies,
+            referrer,
+        });
     } catch (error) {
-        const message = error instanceof Error ? error.message : 'Browser request failed.';
+        const message = error instanceof Error ? error.message : 'Direct fetch failed.';
         return NextResponse.json({ error: message }, { status: 503 });
     }
 
-    if (isChallengePayload(result.status, result.body)) {
+    if (result.isCloudflareChallenge || isChallengePayload(result.status, result.body)) {
         return createDijidemiChallengeResponse();
     }
 
     return new BufferedUpstreamResponse({
         status: result.status,
-        url: result.url || url,
-        headers: result.headers,
+        url,
+        headers: {},
         body: result.body,
     });
 }
