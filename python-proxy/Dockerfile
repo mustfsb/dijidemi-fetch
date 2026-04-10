@@ -5,12 +5,13 @@ FROM python:3.10-slim-bullseye
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
-# Install Chrome and necessary fonts/dependencies cleanly
+# Install Chrome, Xvfb, and xauth for virtual displays
 RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     gnupg \
     ca-certificates \
     xvfb \
+    xauth \
     chromium \
     chromium-driver \
     fonts-liberation \
