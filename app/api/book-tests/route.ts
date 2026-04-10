@@ -7,6 +7,8 @@ import {
 import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
 import { RateLimits } from '@/lib/rate-limit';
 
+export const maxDuration = 25;
+
 interface BookTestsApiResponse {
     success?: boolean;
     tests?: Test[];
@@ -102,4 +104,5 @@ export async function POST(request: NextRequest): Promise<NextResponse<BookTests
         console.error('Error fetching tests:', error);
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
     }
+
 }

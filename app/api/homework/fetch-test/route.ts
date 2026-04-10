@@ -5,6 +5,8 @@ import { getClientIp } from '@/lib/auth';
 import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
 import { RateLimits } from '@/lib/rate-limit';
 
+export const maxDuration = 25;
+
 type KttData = {
     resolvedTestId: string;
     title: string;
@@ -313,4 +315,5 @@ export async function POST(request: NextRequest) {
         console.error('[fetch-test POST]', error.message);
         return NextResponse.json({ success: false, error: error.message || 'KTT eklenemedi' }, { status: 500 });
     }
+
 }

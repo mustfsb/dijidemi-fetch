@@ -6,6 +6,8 @@ import {
 import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
 import { RateLimits } from '@/lib/rate-limit';
 
+export const maxDuration = 25;
+
 interface AssignmentTestResponse {
     success: boolean;
     testId?: string;
@@ -125,4 +127,5 @@ export async function POST(request: NextRequest): Promise<NextResponse<Assignmen
             error: 'Sunucu hatası oluştu'
         }, { status: 500 });
     }
+
 }

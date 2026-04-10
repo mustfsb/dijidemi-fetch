@@ -7,6 +7,8 @@ import {
 import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
 import { RateLimits } from '@/lib/rate-limit';
 
+export const maxDuration = 25;
+
 export async function POST(request: NextRequest): Promise<NextResponse<AssignmentsResponse | { error: string }>> {
     try {
         // Auth check
@@ -133,4 +135,5 @@ export async function POST(request: NextRequest): Promise<NextResponse<Assignmen
         console.error('Assignments API Error:', error);
         return NextResponse.json({ error: 'Sunucu hatası oluştu.' }, { status: 500 });
     }
+
 }

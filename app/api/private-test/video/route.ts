@@ -7,6 +7,8 @@ import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
 import { verifyPrivateTestApiRequest } from '@/lib/private-test/device-gate';
 import { RateLimits } from '@/lib/rate-limit';
 
+export const maxDuration = 25;
+
 const NUMERIC_ID_PATTERN = /^\d+$/;
 
 function parseNumericParam(value: string | null, field: string): string | NextResponse {
@@ -99,4 +101,5 @@ export async function GET(request: NextRequest) {
         console.error('Private Video Proxy Error:', error instanceof Error ? error.message.substring(0, 100) : 'Unknown');
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
     }
+
 }

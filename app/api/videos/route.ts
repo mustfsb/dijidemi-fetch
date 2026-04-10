@@ -10,6 +10,8 @@ import { fetchManyViaBrowser } from '@/lib/dijidemi/productionBrowserManager';
 import cookieManager from '@/lib/cookie/cookieManager';
 import { RateLimits } from '@/lib/rate-limit';
 
+export const maxDuration = 25;
+
 const NUMERIC_ID_PATTERN = /^\d+$/;
 
 function parseNumericParam(value: string | null, field: string): string | NextResponse {

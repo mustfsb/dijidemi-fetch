@@ -5,6 +5,8 @@ import { getClientIp } from '@/lib/auth';
 import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
 import { RateLimits } from '@/lib/rate-limit';
 
+export const maxDuration = 25;
+
 async function requireAdmin() {
   const supabaseSSR = await createAdminClient();
   const { data: { user }, error: authError } = await supabaseSSR.auth.getUser();
@@ -193,5 +195,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ 
       error: 'Sync operation failed'
     }, { status: 500 });
+
   }
 }
