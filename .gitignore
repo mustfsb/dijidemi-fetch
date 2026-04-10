@@ -1,0 +1,11 @@
+.env
+.env.local
+.env*.local
+.next/
+node_modules/
+/tmp/cookies.json
+lib/cookie/cookies.json
+tsconfig.tsbuildinfo
+.DS_Store
+python-proxy/venv/
+python-proxy/frontend/

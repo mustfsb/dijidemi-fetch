@@ -1,0 +1,131 @@
+import { NextRequest, NextResponse } from 'next/server';
+import {
+    getClientIp,
+    setDijidemiSessionCookie,
+    setDijidemiUpstreamCookies,
+} from '@/lib/auth';
+import { RateLimits } from '@/lib/rate-limit';
+import {
+    PRIVATE_TEST_COOKIE_MAX_AGE,
+    PRIVATE_TEST_UID_COOKIE,
+    signUserId,
+} from '@/lib/private-test/device-gate';
+import { syncDijidemiUserToDatabase } from '@/lib/auth/syncDijidemiUser';
+import cookieManager from '@/lib/cookie/cookieManager';
+
+interface LoginBody {
+    username: string;
+    password: string;
+}
+
+interface LoginApiResponse {
+    success?: boolean;
+    data?: unknown;
+    user_id?: string;
+    status?: 'awaiting_verification';
+    attemptId?: string;
+    message?: string;
+    error?: string;
+}
+
+export async function POST(request: NextRequest): Promise<NextResponse<LoginApiResponse>> {
+    try {
+        // Rate limit login attempts
+        const ip = getClientIp(request);
+        const loginScope = request.headers.get('user-agent') || 'unknown-agent';
+        if (!(await RateLimits.LOGIN(ip, loginScope))) {
+            return NextResponse.json({ error: 'Çok fazla giriş denemesi. Lütfen bekleyin.' }, { status: 429 });
+        }
+
+        let body: LoginBody;
+        try {
+            body = await request.json();
+        } catch {
+            return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+        }
+        const { username, password } = body;
+
+        const trimmedUsername = username?.trim();
+        const trimmedPassword = password?.trim();
+
+        if (!trimmedUsername || !trimmedPassword) {
+            return NextResponse.json({ error: 'Username and password are required' }, { status: 400 });
+        }
+        if (trimmedUsername.length > 128 || trimmedPassword.length > 256) {
+            return NextResponse.json({ error: 'Username or password too long' }, { status: 400 });
+        }
+
+        // Production: validate against env vars, then check Supabase for a live session.
+        // Never contact dijidemi.com from Lambda — cf_clearance is IP-bound and Lambda IPs are blocked.
+        const expectedUsername = process.env.DIJIDEMI_USERNAME?.trim();
+        const expectedPassword = process.env.DIJIDEMI_PASSWORD?.trim();
+
+        // In development, bypass strict environment credential checking to allow local testing
+        if (process.env.NODE_ENV !== 'development') {
+            if (!expectedUsername || !expectedPassword) {
+                return NextResponse.json({ error: 'Sunucu kullanıcı bilgileri yapılandırılmamış.' }, { status: 500 });
+            }
+
+            if (trimmedUsername !== expectedUsername || trimmedPassword !== expectedPassword) {
+                return NextResponse.json({ error: 'Kullanıcı adı veya şifre hatalı.' }, { status: 401 });
+            }
+        }
+
+        if (trimmedUsername !== expectedUsername || trimmedPassword !== expectedPassword) {
+            return NextResponse.json({ error: 'Kullanıcı adı veya şifre hatalı.' }, { status: 401 });
+        }
+
+        // Verify that a seeded automation session exists in Supabase
+        const automationCookies = await cookieManager.getCookies();
+        const hasSession = automationCookies.some(c => c.name === 'ASP.NET_SessionId' && c.value);
+        if (!hasSession) {
+            // Trigger a refresh but tell the user to wait since it takes 15s to pass cloudflare
+            cookieManager.refreshCookies().catch(e => console.error("Auto-refresh failed:", e));
+            return NextResponse.json({
+                error: 'Sistem çerezleri şu anda yenileniyor (Cloudflare kontrolü). Lütfen 15-20 saniye bekleyip tekrar giriş yapmayı deneyin.',
+            }, { status: 503 });
+        }
+
+        // Build a cookie map for upstream cookie headers
+        const upstreamCookies = automationCookies.reduce<Record<string, string>>((acc, c) => {
+            acc[c.name] = c.value;
+            return acc;
+        }, {});
+
+        // --- USER SYNC: Check & Create ---
+        const userId = await syncDijidemiUserToDatabase(trimmedUsername, request);
+        if (!userId) {
+            return NextResponse.json({ error: 'Kullanıcı kaydı senkronize edilemedi.' }, { status: 500 });
+        }
+
+        const response = NextResponse.json({
+            success: true,
+            data: { authenticated: true },
+            user_id: userId,
+        });
+        response.headers.set('Cache-Control', 'no-store');
+        setDijidemiUpstreamCookies(response, upstreamCookies);
+
+        const signedUserId = await signUserId(userId);
+        if (!signedUserId) {
+            return NextResponse.json({ error: 'Sunucu kimlik imzalama ayarı eksik.' }, { status: 500 });
+        }
+        response.cookies.set(PRIVATE_TEST_UID_COOKIE, signedUserId, {
+            httpOnly: true,
+            path: '/',
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: PRIVATE_TEST_COOKIE_MAX_AGE,
+        });
+
+        if (!setDijidemiSessionCookie(response, userId)) {
+            return NextResponse.json({ error: 'Sunucu oturum ayarı eksik.' }, { status: 500 });
+        }
+
+        return response;
+
+    } catch (error) {
+        console.error('Login Error:', error instanceof Error ? error.message.substring(0, 100) : 'Unknown');
+        return NextResponse.json({ error: 'Giriş sırasında bir hata oluştu.' }, { status: 500 });
+    }
+}
