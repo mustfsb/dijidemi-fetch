@@ -44,85 +44,93 @@ def get_cookies_via_browser():
     co.set_argument('--disable-dev-shm-usage') # Docker bellek limitleri icin cok onemli
     co.set_argument('--window-size=1280,720')
     co.set_argument('--disable-blink-features=AutomationControlled')
-    co.set_user_agent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36')
+    # NOT: User-Agent'i elle BELIRLEMIYORUZ! Aksi takdirde TLS parmak iziyle uyusmaz ve CF sonsuz donguye sokar.
     
-    page = ChromiumPage(addr_or_opts=co)
-    page.get('https://www.dijidemi.com/Login')
-    
-    print("[LOG] Sayfanin yuklenmesi bekleniyor...")
-    time.sleep(5)
-    
-    cf_wait_time = 0
-    while ("Just a moment" in page.title or "Cloudflare" in page.title or "Attention Required" in page.title) and cf_wait_time < 60:
-        print(f"[UYARI] Cloudflare korumasindayiz, gecilmesi bekleniyor... ({cf_wait_time} sn)")
-        time.sleep(3)
-        cf_wait_time += 3
+    page = None
+    try:
+        page = ChromiumPage(addr_or_opts=co)
+        page.get('https://www.dijidemi.com/Login')
         
-        # Bot algilanmamak icin sayfa ici hareketler ve gercek tiklama
-        try:
-            # 1. Rastgele kaydirma
-            page.run_js(f'window.scrollTo(0, {random.randint(10, 300)});')
+        print("[LOG] Sayfanin yuklenmesi bekleniyor...")
+        time.sleep(5)
+        
+        cf_wait_time = 0
+        while ("Just a moment" in page.title or "Cloudflare" in page.title or "Attention Required" in page.title) and cf_wait_time < 45:
+            print(f"[UYARI] Cloudflare korumasindayiz, gecilmesi bekleniyor... ({cf_wait_time} sn)")
+            time.sleep(3)
+            cf_wait_time += 3
             
-            # 2. Asil cozum: Iframe icine girip gercek checkbox'a tiklamak
-            # Datacenter IP'lerinde (Render) Cloudflare her zaman fiziksel tiklama (Turnstile) ister.
-            cf_iframe = page.get_frame('@src^https://challenges.cloudflare.com', timeout=2)
-            if cf_iframe:
-                print("[LOG] Cloudflare Turnstile iframe bulundu, icine giriliyor...")
-                # Turnstile widget'inin icindeki checkbox genelde .mark veya .ctp-checkbox-label classindadir
-                checkbox = cf_iframe.ele('.mark', timeout=1)
-                if not checkbox:
-                    checkbox = cf_iframe.ele('.ctp-checkbox-label', timeout=1)
-                
-                if checkbox:
-                    checkbox.click()
-                    print("[LOG] Cloudflare Checkbox'ina TIKLANDI!")
-                    time.sleep(2)
-        except Exception as e:
-            pass
-            
-    print(f"[LOG] Cloudflare sonrasi baslik: {page.title}, URL: {page.url}")
-    
-    if "/Ogrenci" in page.url or "Öğrenci Anasayfa" in page.title:
-        print("[BASARILI] Zaten giris yapilmis durumda...")
-    else:
-        username_input = page.ele('@id=txtUserName', timeout=15)
-        if not username_input:
-            if "/Ogrenci" in page.url:
-                print("[BASARILI] Yonlendirme yakalandi!")
-            else:
-                page.quit()
-                return None
-        else:
+            # Bot algilanmamak icin sayfa ici hareketler ve gercek tiklama
             try:
-                username_input.input('14308-1651')
-                password_input = page.ele('@id=txtPassword')
-                password_input.input('175F7')
-                btn = page.ele('@id=btnLogin', timeout=5)
-                if btn:
-                    btn.click()
-                else:
-                    password_input.input('\n')
+                # 1. Rastgele kaydirma
+                page.run_js(f'window.scrollTo(0, {random.randint(10, 300)});')
+                
+                # 2. Iframe icine girip gercek checkbox'a tiklamak
+                cf_iframe = page.get_frame('@src^https://challenges.cloudflare.com', timeout=2)
+                if cf_iframe:
+                    # Cloudflare Turnstile bileseni farkli class'lar kullanabilir
+                    checkbox = cf_iframe.ele('.cb-c', timeout=1) or cf_iframe.ele('.mark', timeout=1) or cf_iframe.ele('.ctp-checkbox-label', timeout=1)
+                    
+                    if checkbox:
+                        checkbox.click()
+                        print("[LOG] Cloudflare Checkbox'ina TIKLANDI!")
+                        time.sleep(2)
             except Exception as e:
                 pass
-            
-            try:
-                page.ele('xpath://a[contains(@href, "/Ogrenci")]', timeout=15)
-            except:
-                time.sleep(3)
-    
-    raw_cookies = page.cookies()
-    cookies = {}
-    if isinstance(raw_cookies, list):
-        for c in raw_cookies:
-            if 'name' in c and 'value' in c:
-                cookies[c['name']] = c['value']
-    elif isinstance(raw_cookies, dict):
-        cookies = raw_cookies
+                
+        print(f"[LOG] Cloudflare sonrasi baslik: {page.title}, URL: {page.url}")
         
-    user_agent = page.user_agent
-    page.quit()
-    
-    return {"cookies": cookies, "user_agent": user_agent}
+        if "Just a moment" in page.title or "Cloudflare" in page.title:
+            print("[HATA] Cloudflare aşılamadı, islem iptal ediliyor.")
+            return None
+        
+        if "/Ogrenci" in page.url or "Öğrenci Anasayfa" in page.title:
+            print("[BASARILI] Zaten giris yapilmis durumda...")
+        else:
+            username_input = page.ele('@id=txtUserName', timeout=15)
+            if not username_input:
+                if "/Ogrenci" in page.url:
+                    print("[BASARILI] Yonlendirme yakalandi!")
+                else:
+                    return None
+            else:
+                try:
+                    username_input.input('14308-1651')
+                    password_input = page.ele('@id=txtPassword')
+                    password_input.input('175F7')
+                    btn = page.ele('@id=btnLogin', timeout=5)
+                    if btn:
+                        btn.click()
+                    else:
+                        password_input.input('\n')
+                except Exception as e:
+                    pass
+                
+                try:
+                    page.ele('xpath://a[contains(@href, "/Ogrenci")]', timeout=15)
+                except:
+                    time.sleep(3)
+        
+        raw_cookies = page.cookies()
+        cookies = {}
+        if isinstance(raw_cookies, list):
+            for c in raw_cookies:
+                if 'name' in c and 'value' in c:
+                    cookies[c['name']] = c['value']
+        elif isinstance(raw_cookies, dict):
+            cookies = raw_cookies
+            
+        user_agent = page.user_agent
+        
+        return {"cookies": cookies, "user_agent": user_agent}
+
+    finally:
+        # Hata olsa bile tarayiciyi KESINLIKLE kapat ki RAM sismesin (Disconnected hatasini onler)
+        if page:
+            try:
+                page.quit()
+            except:
+                pass
 
 def update_cookies_to_supabase(cookie_data):
     data = {
