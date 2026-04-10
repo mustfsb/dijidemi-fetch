@@ -29,6 +29,8 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 class TestRequest(BaseModel):
     test_id: str
 
+import random
+
 def get_cookies_via_browser():
     print("[LOG] Tarayici baslatiliyor ve Cloudflare / Login kontrolu yapiliyor...")
     co = ChromiumOptions()
@@ -56,15 +58,26 @@ def get_cookies_via_browser():
         time.sleep(3)
         cf_wait_time += 3
         
-        # Bot algilanmamak icin sayfada hafif asagi yukari kaydirma yapalim
+        # Bot algilanmamak icin sayfa ici hareketler ve gercek tiklama
         try:
-            page.run_js('window.scrollTo(0, Math.random() * 200);')
+            # 1. Rastgele kaydirma
+            page.run_js(f'window.scrollTo(0, {random.randint(10, 300)});')
             
-            # Eger ekranda tiklanmasi gereken bir Cloudflare (Turnstile) kutusu varsa tiklamaya calis:
-            cf_iframe = page.ele('xpath://iframe[contains(@src, "cloudflare")]', timeout=1)
+            # 2. Asil cozum: Iframe icine girip gercek checkbox'a tiklamak
+            # Datacenter IP'lerinde (Render) Cloudflare her zaman fiziksel tiklama (Turnstile) ister.
+            cf_iframe = page.get_frame('@src^https://challenges.cloudflare.com', timeout=2)
             if cf_iframe:
-                cf_iframe.click(by_js=True)
-        except:
+                print("[LOG] Cloudflare Turnstile iframe bulundu, icine giriliyor...")
+                # Turnstile widget'inin icindeki checkbox genelde .mark veya .ctp-checkbox-label classindadir
+                checkbox = cf_iframe.ele('.mark', timeout=1)
+                if not checkbox:
+                    checkbox = cf_iframe.ele('.ctp-checkbox-label', timeout=1)
+                
+                if checkbox:
+                    checkbox.click()
+                    print("[LOG] Cloudflare Checkbox'ina TIKLANDI!")
+                    time.sleep(2)
+        except Exception as e:
             pass
             
     print(f"[LOG] Cloudflare sonrasi baslik: {page.title}, URL: {page.url}")
