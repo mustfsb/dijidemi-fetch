@@ -7,8 +7,8 @@ services:
     name: diji-python-proxy
     runtime: docker
     rootDir: python-proxy
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
+    dockerfilePath: ./python-proxy/Dockerfile
+    dockerContext: ./python-proxy
     plan: starter
     healthCheckPath: /health
     envVars:
@@ -31,8 +31,8 @@ services:
     name: diji-cookie-refresh
     runtime: docker
     rootDir: python-proxy
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
+    dockerfilePath: ./python-proxy/Dockerfile
+    dockerContext: ./python-proxy
     dockerCommand: python cron.py
     schedule: "0 */2 * * *"
     plan: starter
