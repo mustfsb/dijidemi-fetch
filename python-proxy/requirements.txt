@@ -1,4 +1,4 @@
-nodriver
+undetected-chromedriver
 supabase
 python-dotenv
 curl_cffi

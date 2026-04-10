@@ -32,124 +32,127 @@ class TestRequest(BaseModel):
 
 import random
 
-import asyncio
-import nodriver as uc
-from contextlib import asynccontextmanager
+import undetected_chromedriver as uc
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
-async def get_cookies_via_browser():
-    print("[LOG] nodriver (Undetected) ile Cloudflare / Login kontrolu baslatiliyor...")
+def get_cookies_via_browser():
+    print("[LOG] undetected_chromedriver ile Cloudflare / Login kontrolu baslatiliyor...")
     
-    # nodriver her zaman asenkron (async) calisir
-    # Headless=False olmak zorunda, aksi takdirde Cloudflare engeller
-    # nodriver Linux'ta root kullanicisi icin ozel parametrelere ihtiyac duyar
-    browser = await uc.start(
-        sandbox=False,
-        headless=False,
-        browser_executable_path='/usr/bin/chromium',
-        browser_args=[
-            '--no-sandbox',
-            '--disable-gpu',
-            '--disable-dev-shm-usage',
-            '--window-size=1280,720',
-            '--disable-blink-features=AutomationControlled'
-        ]
-    )
+    options = uc.ChromeOptions()
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-setuid-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--window-size=1280,720')
+    options.add_argument('--disable-blink-features=AutomationControlled')
     
+    # Render'da root olarak calistiriyorsak undetected_chromedriver 'no_sandbox=True' ister
+    driver = None
     try:
-        page = await browser.get('https://www.dijidemi.com/Login')
+        driver = uc.Chrome(
+            options=options,
+            browser_executable_path='/usr/bin/chromium',
+            driver_executable_path='/usr/bin/chromedriver',
+            headless=False,
+            no_sandbox=True  # Asil beklenen parametre budur!
+        )
+        
+        driver.get('https://www.dijidemi.com/Login')
         print("[LOG] Sayfanin yuklenmesi bekleniyor...")
-        await asyncio.sleep(5)
+        time.sleep(5)
         
-        # 1. Asama: Cloudflare Kontrolu
         cf_wait_time = 0
-        while cf_wait_time < 45:
-            # title'i veya HTML'yi al
-            html = await page.get_content()
-            if "Just a moment" in html or "Cloudflare" in html or "Attention Required" in html:
-                print(f"[UYARI] Cloudflare korumasindayiz, gecilmesi bekleniyor... ({cf_wait_time} sn)")
-                await asyncio.sleep(3)
-                cf_wait_time += 3
+        while ("Just a moment" in driver.title or "Cloudflare" in driver.title or "Attention Required" in driver.title) and cf_wait_time < 45:
+            print(f"[UYARI] Cloudflare korumasindayiz, gecilmesi bekleniyor... ({cf_wait_time} sn)")
+            time.sleep(3)
+            cf_wait_time += 3
+            
+            try:
+                # 1. Rastgele kaydirma
+                driver.execute_script(f'window.scrollTo(0, {random.randint(10, 300)});')
                 
-                # Cloudflare (Turnstile) kutusuna tiklamayi dene
-                try:
-                    # Iframe'leri bul
-                    iframes = await page.find_elements('iframe')
-                    for iframe in iframes:
-                        if 'cloudflare' in (await iframe.get_attribute('src') or ''):
-                            print("[LOG] Cloudflare iframe bulundu, Turnstile tiklamasi deneniyor...")
-                            # Iframe icindeki ctp-checkbox-label veya cb-c classini bulup tiklamak
-                            # (nodriver iframe icine girmeyi destekler, ancak biz tiklamayi koordinat veya gorsel uzerinden deneyebiliriz)
-                            # Cogu zaman nodriver kullandigimiz icin Cloudflare kutu cikarmaz veya oto-gecer.
-                            try:
-                                await iframe.click()
-                                print("[LOG] Iframe'e tiklandi.")
-                                await asyncio.sleep(2)
-                            except:
-                                pass
-                except Exception as e:
-                    pass
-            else:
-                break
+                # 2. Iframe icine girip gercek checkbox'a tiklamak
+                iframes = driver.find_elements(By.TAG_NAME, "iframe")
+                for iframe in iframes:
+                    src = iframe.get_attribute("src") or ""
+                    if "cloudflare" in src:
+                        print("[LOG] Cloudflare iframe bulundu, Turnstile tiklamasi deneniyor...")
+                        driver.switch_to.frame(iframe)
+                        
+                        # Checkbox siniflarini kontrol et
+                        try:
+                            checkbox = WebDriverWait(driver, 2).until(
+                                EC.presence_of_element_located((By.CSS_SELECTOR, ".cb-c, .mark, .ctp-checkbox-label"))
+                            )
+                            if checkbox:
+                                checkbox.click()
+                                print("[LOG] Cloudflare Checkbox'ina TIKLANDI!")
+                                time.sleep(2)
+                        except:
+                            pass
+                            
+                        driver.switch_to.default_content()
+            except Exception as e:
+                driver.switch_to.default_content()
+                pass
                 
-        print(f"[LOG] Cloudflare sonrasi sayfa HTML'i kontrol edildi. (Bekleme suresi: {cf_wait_time}sn)")
+        print(f"[LOG] Cloudflare sonrasi baslik: {driver.title}, URL: {driver.current_url}")
         
-        # 2. Asama: Login formunu bul ve doldur
-        html = await page.get_content()
-        if "/Ogrenci" in await page.evaluate('window.location.href') or "Öğrenci Anasayfa" in html:
+        if "Just a moment" in driver.title or "Cloudflare" in driver.title:
+            print("[HATA] Cloudflare aşılamadı, islem iptal ediliyor.")
+            return None
+        
+        if "/Ogrenci" in driver.current_url or "Öğrenci Anasayfa" in driver.title:
             print("[BASARILI] Zaten giris yapilmis durumda...")
         else:
             try:
-                # Kullanici adi inputunu bul
-                username_input = await page.select('#txtUserName', timeout=10)
-                if not username_input:
-                    if "/Ogrenci" in await page.evaluate('window.location.href'):
-                        print("[BASARILI] Yonlendirme yakalandi!")
-                    else:
-                        print("[HATA] txtUserName bulunamadi. Sayfa engellenmis olabilir.")
-                        return None
-                else:
-                    await username_input.send_keys('14308-1651')
+                username_input = WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.ID, "txtUserName"))
+                )
+                username_input.send_keys('14308-1651')
+                
+                password_input = driver.find_element(By.ID, 'txtPassword')
+                password_input.send_keys('175F7')
+                
+                try:
+                    btn = driver.find_element(By.ID, 'btnLogin')
+                    btn.click()
+                except:
+                    password_input.send_keys('\n')
                     
-                    password_input = await page.select('#txtPassword')
-                    await password_input.send_keys('175F7')
-                    
-                    btn = await page.select('#btnLogin')
-                    if btn:
-                        await btn.click()
-                    else:
-                        await password_input.send_keys('\n')
-                        
-                    print("[LOG] Giris bilgileri gonderildi, yonlendirme bekleniyor...")
-                    await asyncio.sleep(5)
+                print("[LOG] Giris bilgileri gonderildi, yonlendirme bekleniyor...")
+                time.sleep(5)
             except Exception as e:
                 print(f"[EXCEPTION] Login form islemlerinde hata: {str(e)}")
+                if "/Ogrenci" not in driver.current_url:
+                    return None
         
-        # 3. Asama: Cerezleri (Cookies) topla
-        # nodriver ile network kismindan cerezleri aliyoruz
-        raw_cookies = await browser.cookies.get_all()
+        # Cerezleri topla
+        raw_cookies = driver.get_cookies()
         cookies = {}
         for c in raw_cookies:
-            cookies[c.name] = c.value
+            cookies[c['name']] = c['value']
             
-        user_agent = await page.evaluate('navigator.userAgent')
+        user_agent = driver.execute_script("return navigator.userAgent;")
         print(f"[BASARILI] Cerezler alindi: {len(cookies)} adet. UA: {user_agent}")
         
         return {"cookies": cookies, "user_agent": user_agent}
 
     except Exception as e:
-        print(f"[CRITICAL HATA] nodriver isleminde cokme: {str(e)}")
+        print(f"[CRITICAL HATA] Tarayici isleminde cokme: {str(e)}")
         return None
     finally:
-        # Ne olursa olsun tarayiciyi kapat (Bellek sizintisini onler)
-        if browser:
+        if driver:
             try:
-                browser.stop()
+                driver.quit()
             except:
                 pass
 
-async def run_browser_update():
+def run_browser_update():
     try:
-        cookie_data = await get_cookies_via_browser()
+        cookie_data = get_cookies_via_browser()
         if cookie_data:
             update_cookies_to_supabase(cookie_data)
             print("[BACKGROUND] Cerezler basariyla yenilendi ve Supabase'e kaydedildi.")
@@ -159,14 +162,13 @@ async def run_browser_update():
         print(f"[BACKGROUND EXCEPTION] Tarayici isleminde hata: {str(e)}")
 
 @app.post("/api/refresh-cookies")
-async def refresh_cookies(request: Request, background_tasks: BackgroundTasks):
+def refresh_cookies(request: Request, background_tasks: BackgroundTasks):
     auth_header = request.headers.get("Authorization")
     if auth_header != "Bearer Sude2003!":
         raise HTTPException(status_code=401, detail="Unauthorized")
         
-    # Asenkron islemi background task olarak ekliyoruz
     background_tasks.add_task(run_browser_update)
-    return {"message": "Cerez yenileme islemi asenkron olarak (nodriver) baslatildi.", "success": True}
+    return {"message": "Cerez yenileme islemi asenkron olarak baslatildi.", "success": True}
 
 @app.post("/api/proxy")
 async def proxy_request(request: Request):
