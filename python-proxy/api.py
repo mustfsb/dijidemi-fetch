@@ -112,18 +112,26 @@ def fetch_cookies_from_supabase():
         pass
     return None
 
+def run_browser_update():
+    try:
+        cookie_data = get_cookies_via_browser()
+        if cookie_data:
+            update_cookies_to_supabase(cookie_data)
+            print("[BACKGROUND] Cerezler basariyla yenilendi ve Supabase'e kaydedildi.")
+        else:
+            print("[BACKGROUND HATA] Cerezler yenilenemedi. Tarayici Cloudflare'i gecemedi veya sayfa yuklenemedi.")
+    except Exception as e:
+        print(f"[BACKGROUND EXCEPTION] Tarayici isleminde hata: {str(e)}")
+
 @app.post("/api/refresh-cookies")
-def refresh_cookies(request: Request):
+def refresh_cookies(request: Request, background_tasks: BackgroundTasks):
     auth_header = request.headers.get("Authorization")
     if auth_header != "Bearer Sude2003!":
         raise HTTPException(status_code=401, detail="Unauthorized")
         
-    cookie_data = get_cookies_via_browser()
-    if cookie_data:
-        update_cookies_to_supabase(cookie_data)
-        return {"message": "Cerezler basariyla yenilendi.", "success": True}
-    else:
-        raise HTTPException(status_code=500, detail="Cerezler yenilenemedi.")
+    # Render yavas oldugu icin islemi arka plana atip cron-job.org'a hemen cevap donuyoruz
+    background_tasks.add_task(run_browser_update)
+    return {"message": "Cerez yenileme islemi arka planda baslatildi.", "success": True}
 
 @app.post("/api/proxy")
 async def proxy_request(request: Request):
