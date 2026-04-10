@@ -33,20 +33,14 @@ def get_cookies_via_browser():
     print("[LOG] Tarayici baslatiliyor ve Cloudflare / Login kontrolu yapiliyor...")
     co = ChromiumOptions()
     
-    # Linux sunuculari (Render vb) veya Netlify icin headless=True zorunludur.
-    # Eger sunucuda GUI yoksa headless=False patlar.
-    # UYARI: Netlify'da Chromium calistirmak mumkun degildir! Bu API'yi Render/Railway'e yuklemelisin.
+    # Her zaman headless=False olmali (Cloudflare'i gecmek icin)
+    co.headless(False)
     
-    is_server = os.getenv("ENVIRONMENT") == "production"
-    
-    if is_server:
-        co.headless(True)
-        co.set_argument('--no-sandbox')
-        co.set_argument('--disable-gpu')
-    else:
-        co.headless(False)
-        co.set_argument('--window-position=-3000,-3000')
-    
+    # Docker/Linux sunucu ayarlari
+    co.set_argument('--no-sandbox')
+    co.set_argument('--disable-gpu')
+    co.set_argument('--disable-dev-shm-usage') # Docker bellek limitleri icin cok onemli
+    co.set_argument('--window-position=-3000,-3000')
     co.set_argument('--window-size=800,600')
     co.set_argument('--disable-blink-features=AutomationControlled')
     

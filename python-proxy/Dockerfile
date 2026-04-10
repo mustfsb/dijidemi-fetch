@@ -36,4 +36,4 @@ ENV DISPLAY=:99
 ENV ENVIRONMENT=production
 
 # Start Xvfb in the background and then start Uvicorn
-CMD xvfb-run -a uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD ["sh", "-c", "xvfb-run -a uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}"]
