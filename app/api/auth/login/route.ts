@@ -13,6 +13,8 @@ import {
 import { syncDijidemiUserToDatabase } from '@/lib/auth/syncDijidemiUser';
 import cookieManager from '@/lib/cookie/cookieManager';
 
+export const maxDuration = 60;
+
 interface LoginBody {
     username: string;
     password: string;
