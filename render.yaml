@@ -1,0 +1,44 @@
+# Optional persistent disk:
+# Attach a disk to the web service and override PATCHRIGHT_USER_DATA_DIR to
+# /app/storage/patchright-profile if you want browser profile persistence.
+
+services:
+  - type: web
+    name: diji-python-proxy
+    runtime: docker
+    rootDir: python-proxy
+    dockerfilePath: ./python-proxy/Dockerfile
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: DIJIDEMI_USERNAME
+        sync: false
+      - key: DIJIDEMI_PASSWORD
+        sync: false
+      - key: PYTHON_PROXY_SHARED_SECRET
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: /ms-playwright
+      - key: PATCHRIGHT_USER_DATA_DIR
+        value: /tmp/patchright-profile
+
+  - type: cron
+    name: diji-cookie-refresh
+    runtime: docker
+    rootDir: python-proxy
+    dockerfilePath: ./python-proxy/Dockerfile
+    dockerCommand: python cron.py
+    schedule: "0 */2 * * *"
+    plan: starter
+    envVars:
+      - key: PYTHON_PROXY_SHARED_SECRET
+        sync: false
+      - key: PYTHON_PROXY_INTERNAL_URL
+        fromService:
+          name: diji-python-proxy
+          type: web
+          property: hostport

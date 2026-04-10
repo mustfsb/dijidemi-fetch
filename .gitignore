@@ -9,3 +9,8 @@ tsconfig.tsbuildinfo
 .DS_Store
 python-proxy/venv/
 python-proxy/frontend/
+.vercel
+python-proxy/__pycache__/
+python-proxy/*.pyc
+python-proxy/local_cookies.json
+python-proxy/.playwright/

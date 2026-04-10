@@ -1,6 +1,6 @@
-undetected-chromedriver
 supabase
 python-dotenv
 curl_cffi
 fastapi
 uvicorn
+patchright

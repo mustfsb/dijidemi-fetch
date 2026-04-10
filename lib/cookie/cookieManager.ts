@@ -17,6 +17,8 @@ class CookieManager {
     private cachedHeaders: HeaderRecord | null = null;
     private cachedHeadersTimestamp: number = 0;
     private readonly HEADERS_CACHE_TTL = 1000 * 30; // 30 seconds
+    private readonly BUSY_RETRY_INTERVAL_MS = 5000;
+    private readonly BUSY_RETRY_TIMEOUT_MS = 60000;
 
     constructor() {
         // Initial empty state, will be populated async
@@ -81,37 +83,42 @@ class CookieManager {
         return false;
     }
 
-    private async saveToSupabase(cookies: CookieRecord) {
-        try {
-            console.log('Saving automation cookies to Supabase...');
-            const updatedAt = new Date().toISOString();
-            // Upsert into auth_cookies with a fixed ID to ensure singleton-like behavior
-            const { error } = await supabase
-                .from('auth_cookies')
-                .upsert({
-                    id: 1,
-                    cookie_json: cookies,
-                    updated_at: updatedAt
-                });
-
-            if (error) {
-                console.error('Error saving cookies to Supabase:', JSON.stringify(error, null, 2));
-                // Add hint about RLS/Keys
-                if (error.code === '42501') {
-                    console.error('Hint: Check if SUPABASE_SERVICE_ROLE_KEY is set in Netlify Environment Variables and if RLS policies allow the write.');
-                }
-            } else {
-                this.lastCookieUpdateAt = Date.parse(updatedAt) || Date.now();
-                console.log('Successfully saved automation cookies to Supabase. Keys:', Object.keys(cookies).sort());
-            }
-
-        } catch (err) {
-            console.error('Unexpected error saving cookies:', err);
-        }
-    }
-
     private hasCriticalCookies(): boolean {
         return Boolean(this.cookies['cf_clearance'] && this.cookies['ASP.NET_SessionId']);
+    }
+
+    private getPythonProxyUrl(): string {
+        return (process.env.DIJIDEMI_PYTHON_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, '');
+    }
+
+    private getPythonProxyAuthHeaders(): HeaderRecord {
+        const sharedSecret = process.env.PYTHON_PROXY_SHARED_SECRET?.trim();
+        if (!sharedSecret) {
+            throw new Error('PYTHON_PROXY_SHARED_SECRET is not configured.');
+        }
+
+        return {
+            Authorization: `Bearer ${sharedSecret}`,
+        };
+    }
+
+    private async waitForRefreshToFinish(previousUpdatedAt: number): Promise<void> {
+        const deadline = Date.now() + this.BUSY_RETRY_TIMEOUT_MS;
+
+        while (Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, this.BUSY_RETRY_INTERVAL_MS));
+            if (await this.loadFromSupabase()) {
+                if (!previousUpdatedAt || this.lastCookieUpdateAt > previousUpdatedAt) {
+                    return;
+                }
+            }
+
+            if (!previousUpdatedAt && this.hasCriticalCookies()) {
+                return;
+            }
+        }
+
+        throw new Error('Timed out while waiting for the Python proxy refresh to finish.');
     }
 
     private shouldRefreshSharedCookies(force: boolean): boolean {
@@ -159,20 +166,26 @@ class CookieManager {
         this.refreshPromise = (async () => {
             try {
                 console.log('Refreshing cookies via Python Proxy (This will take 15-20 seconds to pass Cloudflare)...');
-                const pythonApiUrl = process.env.DIJIDEMI_PYTHON_API_URL || "http://127.0.0.1:8000";
+                const pythonApiUrl = this.getPythonProxyUrl();
+                const authHeaders = this.getPythonProxyAuthHeaders();
+                const previousUpdatedAt = this.lastCookieUpdateAt;
                 
-                // Set a longer timeout if fetch supports it, but node fetch doesn't natively expose timeout.
-                // It will wait for the Python backend to finish the browser automation.
-                const res = await fetch(`${pythonApiUrl}/api/refresh-cookies`, { 
+                const res = await fetch(`${pythonApiUrl}/api/refresh-cookies`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: authHeaders,
                 });
-                
+
+                if (res.status === 409) {
+                    console.log('Python proxy refresh already running elsewhere; waiting for Supabase cookies to update.');
+                    await this.waitForRefreshToFinish(previousUpdatedAt);
+                    return;
+                }
+
                 if (!res.ok) {
-                    throw new Error('Failed to start cookie refresh on proxy');
+                    const errorText = await res.text().catch(() => '');
+                    throw new Error(`Failed to refresh cookies on proxy (${res.status}): ${errorText}`);
                 }
                 
-                // Immediately after success, fetch from supabase to get the latest
                 await this.loadFromSupabase();
                 
                 console.log('Automation cookies refresh completed. Keys:', Object.keys(this.cookies).sort());
@@ -207,7 +220,12 @@ class CookieManager {
     }
 
     async getCookies(): Promise<Array<{ name: string; value: string }>> {
-        await this.ensureValidCookies(false);
+        const timeSinceLastDbCheck = Date.now() - this.lastDbCheck;
+        if (!this.hasCriticalCookies() || timeSinceLastDbCheck > this.DB_CHECK_INTERVAL) {
+            await this.loadFromSupabase();
+            this.lastDbCheck = Date.now();
+        }
+
         return Object.entries(this.cookies)
             .filter(([, value]) => Boolean(value))
             .map(([name, value]) => ({ name, value }));
