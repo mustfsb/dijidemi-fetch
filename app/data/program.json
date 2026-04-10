@@ -162,19 +162,19 @@
       "completed": false
     },
     {
-      "id": "salı-tyt-ayt-ki̇mya-etap-5-85-90",
+      "id": "salı-tyt-ayt-ki̇mya-ayt-çap-293-298",
       "day": "Salı",
       "subject": "TYT-AYT KİMYA",
-      "name": "ETAP-5",
-      "pageRange": "85-90",
+      "name": "AYT ÇAP",
+      "pageRange": "293-298",
       "completed": false
     },
     {
-      "id": "salı-tyt-ayt-ki̇mya-ki̇mya-ve-elektri̇k-293-298",
+      "id": "salı-tyt-ayt-ki̇mya-ki̇mya-ve-elektri̇k-",
       "day": "Salı",
       "subject": "TYT-AYT KİMYA",
       "name": "KİMYA ve ELEKTRİK",
-      "pageRange": "293-298",
+      "pageRange": null,
       "completed": false
     },
     {
@@ -234,18 +234,18 @@
       "completed": false
     },
     {
-      "id": "çarşamba-tyt-mat-bi̇lgi̇-sarmal-problem-",
+      "id": "çarşamba-tyt-mat-bi̇lgi̇-sarmal-problem-215-218",
       "day": "Çarşamba",
       "subject": "TYT MAT",
       "name": "BİLGİ SARMAL PROBLEM",
-      "pageRange": null,
+      "pageRange": "215-218",
       "completed": false
     },
     {
-      "id": "çarşamba-tyt-mat-kümeler-",
-      "day": "Çarşamba",
+      "id": "tyt-mat-tyt-mat-fsk.-tamamlayalim-",
+      "day": "TYT MAT",
       "subject": "TYT MAT",
-      "name": "KÜMELER",
+      "name": "FSK. TAMAMLAYALIM",
       "pageRange": null,
       "completed": false
     },
@@ -306,6 +306,22 @@
       "completed": false
     },
     {
+      "id": "çarşamba-sosyal-apotemi̇-s..b.-271-274",
+      "day": "Çarşamba",
+      "subject": "SOSYAL",
+      "name": "APOTEMİ S..B.",
+      "pageRange": "271-274",
+      "completed": false
+    },
+    {
+      "id": "çarşamba-sosyal-si̇yaset-felsefesi̇-",
+      "day": "Çarşamba",
+      "subject": "SOSYAL",
+      "name": "SİYASET FELSEFESİ",
+      "pageRange": null,
+      "completed": false
+    },
+    {
       "id": "perşembe-türkçe-çap-117-126",
       "day": "Perşembe",
       "subject": "Türkçe",
@@ -322,19 +338,19 @@
       "completed": false
     },
     {
-      "id": "perşembe-geo-rasyonel-",
+      "id": "perşembe-geo-rasyonel-186-189",
       "day": "Perşembe",
       "subject": "GEO",
       "name": "RASYONEL",
-      "pageRange": null,
+      "pageRange": "186-189",
       "completed": false
     },
     {
-      "id": "perşembe-tyt-mat-3d-215-218",
+      "id": "perşembe-tyt-mat-3d-219-224",
       "day": "Perşembe",
       "subject": "TYT MAT",
       "name": "3D",
-      "pageRange": "215-218",
+      "pageRange": "219-224",
       "completed": false
     },
     {
@@ -398,22 +414,6 @@
       "day": "Perşembe",
       "subject": "TYT-AYT BİYO",
       "name": "KALITIM",
-      "pageRange": null,
-      "completed": false
-    },
-    {
-      "id": "perşembe-sosyal-apotemi̇-s..b.-271-274",
-      "day": "Perşembe",
-      "subject": "SOSYAL",
-      "name": "APOTEMİ S..B.",
-      "pageRange": "271-274",
-      "completed": false
-    },
-    {
-      "id": "perşembe-sosyal-si̇yaset-felsefesi̇-",
-      "day": "Perşembe",
-      "subject": "SOSYAL",
-      "name": "SİYASET FELSEFESİ",
       "pageRange": null,
       "completed": false
     },
