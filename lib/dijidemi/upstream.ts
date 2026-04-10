@@ -4,7 +4,7 @@ import {
     createMissingDijidemiSessionResponse,
 } from '@/lib/auth';
 import { isLocalBrowserMode, localDijidemiBrowserManager } from '@/lib/dijidemi/localBrowserManager';
-import { directFetchDijidemi, type DirectFetchResult } from '@/lib/dijidemi/directFetch';
+import { fetchViaBrowser, type BrowserFetchResponse } from '@/lib/dijidemi/productionBrowserManager';
 import cookieManager from '@/lib/cookie/cookieManager';
 
 export class BufferedUpstreamResponse {
@@ -112,44 +112,33 @@ export async function requestDijidemiUpstream(
 
     // Use shared automation cookies from Supabase, then make the request through
     // a real Chromium browser context to preserve Chrome's TLS fingerprint.
+    // The browser navigates to dijidemi.com first, solving any CF challenge and
+    // acquiring a cf_clearance for the Lambda IP before the actual API call.
     const cookies = await cookieManager.getCookies();
-    const hasCfClearance = cookies.some(c => c.name === 'cf_clearance' && c.value);
-    if (!hasCfClearance) {
+    const hasSession = cookies.some(c => c.name === 'ASP.NET_SessionId' && c.value);
+    if (!hasSession) {
         return createMissingDijidemiSessionResponse();
     }
 
-    // Merge additionalCookies (per-request overrides) into the cookie list
-    const mergedCookies = additionalCookies
-        ? [
-            ...cookies,
-            ...Object.entries(additionalCookies)
-                .filter(([, v]) => v != null && v !== '')
-                .map(([name, value]) => ({ name, value: String(value) })),
-          ]
-        : cookies;
-
-    let result: DirectFetchResult;
+    let result: BrowserFetchResponse;
     try {
-        result = await directFetchDijidemi(url, {
-            method,
-            headers,
-            body,
-            cookies: mergedCookies,
-            referrer,
-        });
+        result = await fetchViaBrowser(
+            { url, method, headers, body, additionalCookies, referrer },
+            cookies
+        );
     } catch (error) {
-        const message = error instanceof Error ? error.message : 'Direct fetch failed.';
+        const message = error instanceof Error ? error.message : 'Browser fetch failed.';
         return NextResponse.json({ error: message }, { status: 503 });
     }
 
-    if (result.isCloudflareChallenge || isChallengePayload(result.status, result.body)) {
+    if (isChallengePayload(result.status, result.body)) {
         return createDijidemiChallengeResponse();
     }
 
     return new BufferedUpstreamResponse({
         status: result.status,
-        url,
-        headers: {},
+        url: result.url || url,
+        headers: result.headers,
         body: result.body,
     });
 }
