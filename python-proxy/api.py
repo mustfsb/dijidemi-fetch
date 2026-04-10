@@ -41,9 +41,10 @@ async def get_cookies_via_browser():
     
     # nodriver her zaman asenkron (async) calisir
     # Headless=False olmak zorunda, aksi takdirde Cloudflare engeller
+    # nodriver Linux'ta root kullanicisi icin ozel parametrelere ihtiyac duyar
     browser = await uc.start(
+        sandbox=False,
         headless=False,
-        no_sandbox=True,
         browser_executable_path='/usr/bin/chromium',
         browser_args=[
             '--no-sandbox',
