@@ -1,38 +1,38 @@
-FROM python:3.10-slim
+# Switch to a lightweight Python Debian image
+FROM python:3.10-slim-bullseye
 
-# Install dependencies for Chromium (this is required for Render/Railway)
-RUN apt-get update && apt-get install -y \
+# Set environment variables to prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+# Install Chrome and necessary fonts/dependencies cleanly
+RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     gnupg \
     ca-certificates \
-    libx11-xcb1 \
-    libxcomposite1 \
-    libxcursor1 \
-    libxdamage1 \
-    libxi-dev \
-    libxtst6 \
-    libnss3 \
-    libcups2 \
-    libxss1 \
-    libxrandr2 \
-    libasound2 \
-    libatk1.0-0 \
-    libgtk-3-0 \
-    fonts-liberation \
-    libappindicator3-1 \
-    xdg-utils \
-    chromium \
     xvfb \
+    chromium \
+    chromium-driver \
+    fonts-liberation \
+    libnss3 \
+    libxss1 \
+    libappindicator3-1 \
+    libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
+# Set up working directory
 WORKDIR /app
 
+# Copy and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy application files
 COPY . .
 
+# Export display for Xvfb (Virtual Framebuffer for pseudo-headless Chrome)
+ENV DISPLAY=:99
 ENV ENVIRONMENT=production
 
-# Xvfb runs a virtual screen so that pseudo-headless (headless=False) can still run on a Linux server without crashing
-CMD ["sh", "-c", "Xvfb :99 -ac & export DISPLAY=:99 && uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Start Xvfb in the background and then start Uvicorn
+CMD xvfb-run -a uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}
