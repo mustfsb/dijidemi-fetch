@@ -113,7 +113,11 @@ def fetch_cookies_from_supabase():
     return None
 
 @app.post("/api/refresh-cookies")
-def refresh_cookies():
+def refresh_cookies(request: Request):
+    auth_header = request.headers.get("Authorization")
+    if auth_header != "Bearer Sude2003!":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
     cookie_data = get_cookies_via_browser()
     if cookie_data:
         update_cookies_to_supabase(cookie_data)
