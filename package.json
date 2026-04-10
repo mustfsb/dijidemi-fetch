@@ -7,6 +7,7 @@
     "analyze": "tsx scripts/update-program.ts",
     "smoke:local": "tsx scripts/smoke-local-dijidemi.ts",
     "seed-cookies": "tsx scripts/seed-cookies.ts",
+    "sync-books": "tsx scripts/sync-book-tests.ts",
     "build": "tsx scripts/update-program.ts && next build",
     "start": "next start",
     "lint": "next lint",

@@ -6,8 +6,53 @@ import {
 } from '@/lib/auth';
 import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
 import { RateLimits } from '@/lib/rate-limit';
+import { supabase } from '@/lib/db/supabase';
 
 export const maxDuration = 25;
+
+const CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
+
+async function getCachedTests(bookId: string): Promise<Test[] | null> {
+    try {
+        const { data, error } = await supabase
+            .from('book_tests_cache')
+            .select('tests, updated_at')
+            .eq('book_id', bookId)
+            .single();
+
+        if (error || !data) return null;
+
+        const age = Date.now() - new Date(data.updated_at).getTime();
+        if (age > CACHE_TTL_MS) return null;
+
+        return data.tests as Test[];
+    } catch {
+        return null;
+    }
+}
+
+async function setCachedTests(bookId: string, tests: Test[]): Promise<void> {
+    try {
+        await supabase
+            .from('book_tests_cache')
+            .upsert({ book_id: bookId, tests, updated_at: new Date().toISOString() });
+    } catch {
+        // cache write failure is non-fatal
+    }
+}
+
+async function getStaleCachedTests(bookId: string): Promise<Test[] | null> {
+    try {
+        const { data } = await supabase
+            .from('book_tests_cache')
+            .select('tests')
+            .eq('book_id', bookId)
+            .single();
+        return data ? (data.tests as Test[]) : null;
+    } catch {
+        return null;
+    }
+}
 
 interface BookTestsApiResponse {
     success?: boolean;
@@ -50,55 +95,54 @@ export async function POST(request: NextRequest): Promise<NextResponse<BookTests
             return NextResponse.json({ error: 'Book ID is invalid' }, { status: 400 });
         }
 
-        const url = new URL('https://www.dijidemi.com/Ogrenci/KitapTestlerTable');
-        url.search = new URLSearchParams({
-            Id: id,
-            ___layout: '',
-        }).toString();
-
-        const response = await requestDijidemiUpstream({
-            request,
-            userId: auth.userId,
-            url: url.toString(),
-            method: 'POST',
-            body: '',
-        });
-        if (response instanceof NextResponse) return response;
-
-        if (!response.ok) {
-            return NextResponse.json({ error: `Upstream error: ${response.status}` }, { status: response.status });
+        // 1. Try fresh cache first
+        const cached = await getCachedTests(id);
+        if (cached) {
+            return NextResponse.json({ success: true, tests: cached, cached: true });
         }
 
-        const html = await response.text();
+        // 2. Try live fetch from dijidemi.com
+        const upstreamUrl = new URL('https://www.dijidemi.com/Ogrenci/KitapTestlerTable');
+        upstreamUrl.search = new URLSearchParams({ Id: id, ___layout: '' }).toString();
 
-        // Improved parsing logic to capture ALL tests
-        // We look for the pattern: <h3>Title</h3> ... data-rowid="ID"
-        // The previous split method might have been too aggressive or missed nested structures.
-        // Using a global regex with matchAll is safer.
+        let tests: Test[] | null = null;
 
-        const tests: Test[] = [];
-        // Regex explanation:
-        // <h3>(.*?)<\/h3>  -> Captures the title inside h3
-        // [\s\S]*?         -> Matches any character (including newlines) non-greedily until...
-        // data-rowid="(\d+)" -> Captures the numeric ID
-        const regex = /<h3>(.*?)<\/h3>[\s\S]*?data-rowid="(\d+)"/g;
-
-        const matches = [...html.matchAll(regex)];
-
-        for (const match of matches) {
-            let title = match[1].trim();
-            const id = match[2];
-
-            // Decode HTML entities
-            title = title.replace(/&#(\d+);/g, (_match, dec) => String.fromCharCode(parseInt(dec, 10)));
-
-            tests.push({
-                name: title,
-                id: id
+        try {
+            const response = await requestDijidemiUpstream({
+                request,
+                userId: auth.userId,
+                url: upstreamUrl.toString(),
+                method: 'POST',
+                body: '',
             });
+
+            if (!(response instanceof NextResponse) && response.ok) {
+                const html = await response.text();
+                const regex = /<h3>(.*?)<\/h3>[\s\S]*?data-rowid="(\d+)"/g;
+                tests = [...html.matchAll(regex)].map(match => ({
+                    name: match[1].trim().replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(parseInt(dec, 10))),
+                    id: match[2],
+                }));
+            }
+        } catch {
+            // upstream failed — fall through to stale cache
         }
 
-        return NextResponse.json({ success: true, tests });
+        if (tests !== null) {
+            await setCachedTests(id, tests);
+            return NextResponse.json({ success: true, tests });
+        }
+
+        // 3. Upstream failed — return stale cache if available
+        const stale = await getStaleCachedTests(id);
+        if (stale) {
+            return NextResponse.json({ success: true, tests: stale, cached: true, stale: true });
+        }
+
+        return NextResponse.json(
+            { error: 'Testler yüklenemedi. Lütfen yerel makinede "npm run sync-books" çalıştırın.' },
+            { status: 503 }
+        );
 
     } catch (error) {
         console.error('Error fetching tests:', error);
