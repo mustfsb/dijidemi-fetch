@@ -11,8 +11,8 @@ import {
     verifySignedUserId,
 } from '@/lib/private-test/device-gate'
 
-function buildContentSecurityPolicy(nonce: string): string {
-    const scriptSources = [`'self'`, `'nonce-${nonce}'`];
+function buildContentSecurityPolicy(_nonce: string): string {
+    const scriptSources = [`'self'`, `'unsafe-inline'`];
     if (process.env.NODE_ENV === 'development') {
         scriptSources.push(`'unsafe-eval'`);
     }
