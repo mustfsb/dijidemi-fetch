@@ -155,14 +155,37 @@ export function useTestRunner(
                 return true;
             }
 
-            // Normal assignment flow
-            const res = await authFetch('/api/student/assignment-test', {
+            // Normal assignment flow — browser-direct (same pattern as homework list)
+            const proxyRes = await fetch(`${UPSTREAM_BASE}/api/proxy`, {
                 method: 'POST',
-                body: JSON.stringify({ odevId: asgn.id })
+                headers: {
+                    'Authorization': `Bearer ${UPSTREAM_TOKEN}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    url: `https://www.dijidemi.com/Ogrenci/Odev?id=${encodeURIComponent(asgn.id)}`,
+                    method: 'GET',
+                }),
             });
+            if (!proxyRes.ok) throw new Error('Ödev sayfası alınamadı');
+            const proxyData = await proxyRes.json();
+            const html = typeof proxyData.body === 'string' ? proxyData.body : '';
 
-            const data = await res.json();
-            if (!data.success || !data.testId) throw new Error(data.error || 'Test ID alınamadı');
+            const testIdPatterns = [
+                /name=["']TestId["'][^>]*value=["'](\d+)["']/i,
+                /data-testid=["'](\d+)["']/i,
+                /TestId['":\s=]+['"]?(\d+)['"]?/i,
+                /testId['":\s=]+['"]?(\d+)['"]?/i,
+                /id=["']TestId["'][^>]*value=["'](\d+)["']/i,
+                /value=["'](\d+)["'][^>]*(?:name|id)=["']TestId["']/i,
+            ];
+            let testId: string | null = null;
+            for (const pattern of testIdPatterns) {
+                const m = html.match(pattern);
+                if (m?.[1]) { testId = m[1]; break; }
+            }
+            if (!testId) throw new Error('TestId bulunamadı');
+            const data = { success: true, testId };
 
             const newTest = { id: data.testId, name: asgn.title };
             setSelectedTest(newTest);
