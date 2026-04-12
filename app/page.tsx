@@ -241,11 +241,11 @@ export default function Home() {
           <div className="px-6 py-6">
             <DialogHeader className="space-y-3 text-left">
               <DialogTitle className="text-2xl font-bold text-white">
-                Diji-Fetch engel tanımaz.
+                Dijidemi&apos;nin engelleme girişimleri sonuçsuz kaldı.
               </DialogTitle>
               <DialogDescription className="space-y-3 text-sm leading-6 text-zinc-300">
                 <span className="block">
-                  Dijidemi&apos;nin projeye karşı başlattığı engelleme girişimleri
+                  Dijidemi&apos;nin sisteme erişimimizi engelleme girişimleri
                   sonuçsuz kaldı. Diji-Fetch tüm bariyerleri aşarak çalışmaya
                   devam ediyor.
                 </span>
