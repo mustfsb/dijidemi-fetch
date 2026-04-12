@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import type { Test, TestData, Video, Assignment, AssignmentContext, UserAnswers, TestScoreData } from '@/types';
 import type { WeeklySchedule } from '@/types/program';
 import { authFetch } from '@/lib/tokenManager';
+// Video and TestScore types kept for future use
 
 function sanitizeAnswerKey(value: unknown): string {
     if (typeof value !== 'string') return '';
@@ -63,127 +64,34 @@ export function useTestRunner(
         setData(null);
         setVideos([]);
         setUserAnswers({});
-        setVideoStatus('Hazırlanıyor...');
+        setVideoStatus(null);
         setAssignmentContext(context);
         setTestScore(null);
 
-        // Log "Test Viewed" event
-        const userId = localStorage.getItem('user_uuid');
-        if (userId) {
-            authFetch('/api/log/create', {
-                method: 'POST',
-                body: JSON.stringify({
-                    user_id: userId,
-                    event_type: 'TEST_VIEWED',
-                    target_id: tId
-                })
-            }).catch(console.error);
-        }
-
-        // Fetch test score
-        setLoadingScore(true);
-        authFetch(`/api/student/test-answers?testId=${tId}`)
-            .then(r => r.json())
-            .then((scoreData: TestScoreData) => {
-                if (!isStaleLoad() && scoreData.success) {
-                    setTestScore(scoreData);
-                }
-            })
-            .catch(err => console.error(err))
-            .finally(() => {
-                if (!isStaleLoad()) {
-                    setLoadingScore(false);
-                }
-            });
-
         try {
+            // Single request: GET /api/proxy?testId=<id>
+            // → http://194.62.55.93:8000/api/test?testId=<id>
             const res = await authFetch(`/api/proxy?testId=${tId}`);
-            if (!res.ok) throw new Error('Test verisi alınamadı');
+            if (!res.ok) {
+                const errData = await res.json().catch(() => ({}));
+                throw new Error(errData.error || 'Test verisi alınamadı');
+            }
             const json: TestData = await res.json();
             if (isStaleLoad()) return;
 
             const answerKey = resolveAnswerKey(json as Record<string, unknown>);
-            const normalizedData: TestData = {
+            setData({
                 ...json,
                 CevapAnahtari: answerKey || '',
                 SoruSayisi: (json as any).SoruSayisi || answerKey.length || 40,
-            };
-            setData(normalizedData);
+            });
 
             if (!answerKey) {
-                showToast('Bu testte cevap anahtarı bulunamadı. Sorular yüklenemedi.', 'error');
+                showToast('Bu testte cevap anahtarı bulunamadı.', 'error');
             }
-
-            const count = normalizedData.SoruSayisi || 40;
-            setVideoStatus(`Video çözümler yükleniyor...`);
-            try {
-                const videosRes = await authFetch(
-                    `/api/videos?testId=${encodeURIComponent(tId)}&count=${count}`,
-                    { headers: { 'Accept': 'text/event-stream' } }
-                );
-                if (isStaleLoad()) return;
-
-                if (!videosRes.ok || !videosRes.body) {
-                    setVideoStatus('Video çözümü yüklenemedi');
-                } else {
-                    const reader = videosRes.body.getReader();
-                    const decoder = new TextDecoder();
-                    let buffer = '';
-                    let loaded = 0;
-                    const seenQuestions = new Set<number>();
-
-                    outer: while (true) {
-                        const { done, value } = await reader.read();
-                        if (done) break;
-                        if (isStaleLoad()) {
-                            await reader.cancel().catch(() => undefined);
-                            break;
-                        }
-
-                        buffer += decoder.decode(value, { stream: true });
-                        const lines = buffer.split('\n');
-                        buffer = lines.pop() ?? '';
-
-                        for (const line of lines) {
-                            if (!line.startsWith('data: ')) continue;
-                            try {
-                                const event = JSON.parse(line.slice(6));
-                                if (event.done) {
-                                    setVideoStatus(event.found > 0 ? 'Tamamlandı' : 'Video çözümü bulunamadı');
-                                    break outer;
-                                }
-                                if (event.error) {
-                                    setVideoStatus('Video çözümü yüklenemedi');
-                                    break outer;
-                                }
-                                if (event.q && event.url) {
-                                    if (!seenQuestions.has(event.q)) {
-                                        seenQuestions.add(event.q);
-                                        loaded++;
-                                    }
-
-                                    setVideos(prev => {
-                                        const next = prev.filter(video => video.q !== event.q);
-                                        next.push({ q: event.q, url: event.url });
-                                        next.sort((a, b) => a.q - b.q);
-                                        return next;
-                                    });
-                                    setVideoStatus(`Video çözümler yükleniyor (${loaded}/${count})...`);
-                                }
-                            } catch { /* malformed event, skip */ }
-                        }
-                    }
-                }
-            } catch {
-                if (!isStaleLoad()) {
-                    setVideoStatus('Video çözümü yüklenemedi');
-                }
-            }
-
         } catch (e) {
             if (!isStaleLoad()) {
                 setError(e instanceof Error ? e.message : 'Bilinmeyen hata');
-                setVideoStatus('Hata');
             }
         } finally {
             if (!isStaleLoad()) {
@@ -214,20 +122,6 @@ export function useTestRunner(
             const data = await res.json();
             if (!data.success || !data.testId) throw new Error(data.error || 'Test ID alınamadı');
 
-            // Log "Assignment Opened" event
-            const userId = localStorage.getItem('user_uuid');
-            if (userId) {
-                authFetch('/api/log/create', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        user_id: userId,
-                        event_type: 'ASSIGNMENT_OPENED',
-                        target_id: asgn.id,
-                        details: { title: asgn.title }
-                    })
-                }).catch(console.error);
-            }
-
             const newTest = { id: data.testId, name: asgn.title };
             setSelectedTest(newTest);
             await loadTest(data.testId, { odevId: asgn.id });
@@ -256,19 +150,6 @@ export function useTestRunner(
                 })
             });
             if (!res.ok) throw new Error('Hata');
-
-            // Log Event
-            const userId = localStorage.getItem('user_uuid');
-            if (userId) {
-                authFetch('/api/log/create', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        user_id: userId,
-                        event_type: 'TEST_SAVED',
-                        details: { testId: selectedTest.id, questionCount: data?.SoruSayisi }
-                    })
-                }).catch(console.error);
-            }
 
             showToast('✅ Cevaplar kaydedildi!', 'success');
 

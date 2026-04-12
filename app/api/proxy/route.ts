@@ -5,7 +5,6 @@ import {
 import {
     readBufferedUpstreamPayload,
     requestUpstreamApi,
-    UPSTREAM_API_DEFAULTS,
 } from '@/lib/upstreamApi';
 import { RateLimits } from '@/lib/rate-limit';
 
@@ -30,30 +29,21 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const { searchParams } = new URL(request.url);
     const testId = parseNumericParam(searchParams.get('testId'), 'testId');
     if (testId instanceof NextResponse) return testId;
-    const programId = parseNumericParam(searchParams.get('programId') || UPSTREAM_API_DEFAULTS.programId, 'programId');
-    if (programId instanceof NextResponse) return programId;
 
-    try {
-        const response = await requestUpstreamApi({
-            path: '/api/test',
-            method: 'GET',
-            query: {
-                testId,
-                programId,
-            },
-        });
-        if (response instanceof NextResponse) return response;
+    // Direct passthrough: GET http://194.62.55.93:8000/api/test?testId=<id>
+    const response = await requestUpstreamApi({
+        path: '/api/test',
+        method: 'GET',
+        query: { testId },
+    });
 
-        if (!response.ok) {
-            throw new Error(`Upstream API responded with ${response.status}`);
-        }
+    if (response instanceof NextResponse) return response;
 
-        const data = readBufferedUpstreamPayload(response);
-        return NextResponse.json(data);
-
-    } catch (error) {
-        console.error('Proxy Error:', error instanceof Error ? error.message.substring(0, 100) : 'Unknown');
-        return NextResponse.json({ error: 'Upstream request failed' }, { status: 500 });
+    if (!response.ok) {
+        console.error(`[proxy] upstream ${response.status} for testId=${testId}`);
+        return NextResponse.json({ error: `Upstream ${response.status}` }, { status: response.status });
     }
 
+    const data = readBufferedUpstreamPayload(response);
+    return NextResponse.json(data);
 }
