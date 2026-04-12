@@ -32,10 +32,16 @@ async function fetchVideoUrl(testId: string, soruId: number): Promise<string | n
     });
 
     if (response instanceof NextResponse || !response.ok) {
+        console.warn(`[videos] upstream failed for testId=${testId} soruId=${soruId}: ${response instanceof NextResponse ? 'transport error' : response.status}`);
         return null;
     }
 
-    return extractVideoUrlFromPayload(readBufferedUpstreamPayload(response));
+    const payload = readBufferedUpstreamPayload(response);
+    const url = extractVideoUrlFromPayload(payload);
+    if (!url) {
+        console.log(`[videos] no url extracted for testId=${testId} soruId=${soruId}, payload:`, JSON.stringify(payload).substring(0, 200));
+    }
+    return url;
 }
 
 /**
