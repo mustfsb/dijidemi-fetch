@@ -96,26 +96,40 @@ export function useTestRunner(
                 showToast('Bu testte cevap anahtarı bulunamadı.', 'error');
             }
 
-            // Load videos via SSE
+            // Load videos directly from upstream (browser-side, same as test data)
             if (!isStaleLoad()) {
                 setVideoStatus('Videolar yükleniyor...');
-                const es = new EventSource(`/api/videos?testId=${encodeURIComponent(tId)}&count=${questionCount}`);
-                es.onmessage = (e) => {
-                    if (isStaleLoad()) { es.close(); return; }
-                    try {
-                        const msg = JSON.parse(e.data);
-                        if (msg.done) {
-                            es.close();
-                            setVideoStatus(msg.found > 0 ? null : 'Video bulunamadı.');
-                        } else if (msg.q && msg.url) {
-                            setVideos(prev => [...prev, { q: msg.q, url: msg.url }]);
-                        } else if (msg.error) {
-                            es.close();
-                            setVideoStatus(null);
-                        }
-                    } catch { es.close(); }
-                };
-                es.onerror = () => { es.close(); setVideoStatus(null); };
+                (async () => {
+                    const questions = Array.from({ length: questionCount }, (_, i) => i + 1);
+                    let found = 0;
+                    const BATCH = 8;
+                    for (let i = 0; i < questions.length; i += BATCH) {
+                        if (isStaleLoad()) return;
+                        await Promise.all(
+                            questions.slice(i, i + BATCH).map(async (soruId) => {
+                                try {
+                                    const res = await fetch(`${UPSTREAM_BASE}/api/video`, {
+                                        method: 'POST',
+                                        headers: {
+                                            'Authorization': `Bearer ${UPSTREAM_TOKEN}`,
+                                            'Content-Type': 'application/json',
+                                        },
+                                        body: JSON.stringify({ testId: Number(tId), soruId }),
+                                    });
+                                    if (!res.ok) return;
+                                    const d = await res.json();
+                                    if (d.videoUrl && !isStaleLoad()) {
+                                        found++;
+                                        setVideos(prev => [...prev, { q: soruId, url: d.videoUrl }]);
+                                    }
+                                } catch { /* video yok, atla */ }
+                            })
+                        );
+                    }
+                    if (!isStaleLoad()) {
+                        setVideoStatus(found > 0 ? null : 'Video bulunamadı.');
+                    }
+                })();
             }
         } catch (e) {
             if (!isStaleLoad()) {
