@@ -6,7 +6,7 @@ import { authFetch } from '@/lib/tokenManager';
 // Direct upstream URL — set NEXT_PUBLIC_UPSTREAM_API_BASE_URL in Vercel env vars
 const UPSTREAM_BASE =
     process.env.NEXT_PUBLIC_UPSTREAM_API_BASE_URL?.replace(/\/$/, '') ||
-    'http://194.62.55.93:8000';
+    'https://diji-fetch.duckdns.org';
 const UPSTREAM_TOKEN =
     process.env.NEXT_PUBLIC_UPSTREAM_API_TOKEN || 'aBcD';
 

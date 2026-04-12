@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { Assignment, Test } from '@/types';
 
-const DEFAULT_UPSTREAM_API_BASE_URL = 'http://194.62.55.93:8000';
+const DEFAULT_UPSTREAM_API_BASE_URL = 'https://diji-fetch.duckdns.org';
 const DEFAULT_UPSTREAM_API_TOKEN = 'aBcD';
 const DEFAULT_UPSTREAM_API_TIMEOUT_MS = 15000;
 
