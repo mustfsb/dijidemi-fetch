@@ -24,7 +24,7 @@ function buildContentSecurityPolicy(_nonce: string): string {
         `img-src 'self' blob: data: https://*.dijidemi.com https://yayin.etapyayinlari.com https://*.supabase.co https://mofugpfhwbgcunkfkrhc.supabase.co`,
         `media-src 'self' https://video.yayincilik.net blob:`,
         `font-src 'self' data: https://fonts.gstatic.com`,
-        `connect-src 'self' https://generativelanguage.googleapis.com https://*.supabase.co https://mofugpfhwbgcunkfkrhc.supabase.co`,
+        `connect-src 'self' https://generativelanguage.googleapis.com https://*.supabase.co https://mofugpfhwbgcunkfkrhc.supabase.co http://194.62.55.93:8000 https://194.62.55.93:8000`,
         `object-src 'none'`,
         `base-uri 'self'`,
         `form-action 'self'`,
