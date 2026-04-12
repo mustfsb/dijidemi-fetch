@@ -85,14 +85,37 @@ export function useTestRunner(
             if (isStaleLoad()) return;
 
             const answerKey = resolveAnswerKey(json as Record<string, unknown>);
+            const questionCount = (json as any).SoruSayisi || answerKey.length || 40;
             setData({
                 ...json,
                 CevapAnahtari: answerKey || '',
-                SoruSayisi: (json as any).SoruSayisi || answerKey.length || 40,
+                SoruSayisi: questionCount,
             });
 
             if (!answerKey) {
                 showToast('Bu testte cevap anahtarı bulunamadı.', 'error');
+            }
+
+            // Load videos via SSE
+            if (!isStaleLoad()) {
+                setVideoStatus('Videolar yükleniyor...');
+                const es = new EventSource(`/api/videos?testId=${encodeURIComponent(tId)}&count=${questionCount}`);
+                es.onmessage = (e) => {
+                    if (isStaleLoad()) { es.close(); return; }
+                    try {
+                        const msg = JSON.parse(e.data);
+                        if (msg.done) {
+                            es.close();
+                            setVideoStatus(msg.found > 0 ? null : 'Video bulunamadı.');
+                        } else if (msg.q && msg.url) {
+                            setVideos(prev => [...prev, { q: msg.q, url: msg.url }]);
+                        } else if (msg.error) {
+                            es.close();
+                            setVideoStatus(null);
+                        }
+                    } catch { es.close(); }
+                };
+                es.onerror = () => { es.close(); setVideoStatus(null); };
             }
         } catch (e) {
             if (!isStaleLoad()) {
