@@ -100,6 +100,7 @@ export async function middleware(request: NextRequest) {
             'https://www.dijidemi.com',
             'https://dijidemi.com',
             'https://diji-fetch.netlify.app',
+            'https://diji-fetch.vercel.app',
         ]);
 
         // In development, allow any localhost/127.0.0.1 port

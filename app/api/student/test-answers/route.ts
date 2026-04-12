@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-    requireAuth,
     getClientIp,
 } from '@/lib/auth';
 import { RateLimits } from '@/lib/rate-limit';
@@ -38,14 +37,12 @@ function parseNumericParam(value: string | null, field: string): string | NextRe
     return normalized;
 }
 
-export async function GET(request: NextRequest): Promise<NextResponse<TestAnswersResponse>> {
-    // Auth check
-    const auth = await requireAuth(request);
-    if (auth instanceof NextResponse) return auth as NextResponse<TestAnswersResponse>;
+export const maxDuration = 25;
 
-    // Rate limit
+export async function GET(request: NextRequest): Promise<NextResponse<TestAnswersResponse>> {
     const ip = getClientIp(request);
-    if (!(await RateLimits.GENERAL(ip, auth.userId))) {
+    console.log(`[test-answers] GET from ip=${ip}`);
+    if (!(await RateLimits.GENERAL(ip))) {
         return NextResponse.json({ success: false, error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
     }
 
@@ -64,13 +61,16 @@ export async function GET(request: NextRequest): Promise<NextResponse<TestAnswer
                 turID: turID || UPSTREAM_API_DEFAULTS.turID,
             },
         });
-        if (response instanceof NextResponse) return response as NextResponse<TestAnswersResponse>;
+
+        // Upstream unreachable or transport error — degrade gracefully
+        if (response instanceof NextResponse) {
+            console.warn(`[test-answers] upstream transport error for testId=${testId}`);
+            return NextResponse.json({ success: true, hasAnswers: false });
+        }
 
         if (!response.ok) {
-            return NextResponse.json({
-                success: false,
-                error: `API yanıt hatası: ${response.status}`
-            }, { status: response.status });
+            console.warn(`[test-answers] upstream HTTP ${response.status} for testId=${testId}, body snippet: ${response.body.slice(0, 200)}`);
+            return NextResponse.json({ success: true, hasAnswers: false });
         }
 
         const payload = readBufferedUpstreamPayload(response);

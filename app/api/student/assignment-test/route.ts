@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-    requireAuth,
     getClientIp,
 } from '@/lib/auth';
 import { RateLimits } from '@/lib/rate-limit';
@@ -33,13 +32,8 @@ function parseNumericId(value: unknown, field: string): string | NextResponse<As
 
 export async function POST(request: NextRequest): Promise<NextResponse<AssignmentTestResponse>> {
     try {
-        // Auth check
-        const auth = await requireAuth(request);
-        if (auth instanceof NextResponse) return auth as NextResponse<AssignmentTestResponse>;
-
-        // Rate limit
         const ip = getClientIp(request);
-        if (!(await RateLimits.GENERAL(ip, auth.userId))) {
+        if (!(await RateLimits.GENERAL(ip))) {
             return NextResponse.json({ success: false, error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
         }
 

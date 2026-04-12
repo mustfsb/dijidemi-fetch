@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { BookTestsRequest, Test } from '@/types';
 import {
-    requireAuth,
     getClientIp,
 } from '@/lib/auth';
 import { RateLimits } from '@/lib/rate-limit';
@@ -78,13 +77,9 @@ function parseNumericId(value: unknown): string | null {
 
 export async function POST(request: NextRequest): Promise<NextResponse<BookTestsApiResponse>> {
     try {
-        // Auth check
-        const auth = await requireAuth(request);
-        if (auth instanceof NextResponse) return auth;
-
-        // Rate limit
         const ip = getClientIp(request);
-        if (!(await RateLimits.GENERAL(ip, auth.userId))) {
+        console.log(`[book-tests] POST from ip=${ip}`);
+        if (!(await RateLimits.GENERAL(ip))) {
             return NextResponse.json({ error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
         }
 

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-    requireAuth,
     getClientIp,
 } from '@/lib/auth';
 import { RateLimits } from '@/lib/rate-limit';
@@ -51,11 +50,8 @@ async function fetchVideoUrl(testId: string, soruId: number): Promise<string | n
  *   data: {"done":true,"found":N,"total":M}\n\n
  */
 export async function GET(request: NextRequest) {
-    const auth = await requireAuth(request);
-    if (auth instanceof NextResponse) return auth;
-
     const ip = getClientIp(request);
-    if (!(await RateLimits.GENERAL(ip, auth.userId))) {
+    if (!(await RateLimits.GENERAL(ip))) {
         return NextResponse.json({ error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
     }
 

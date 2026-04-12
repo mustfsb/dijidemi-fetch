@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { Assignment, AssignmentsResponse } from '@/types';
-import { requireAuth, getClientIp } from '@/lib/auth';
+import { getClientIp } from '@/lib/auth';
 import { RateLimits } from '@/lib/rate-limit';
 import {
     parseAssignmentsPayload,
@@ -15,13 +15,8 @@ export async function GET(
     request: NextRequest
 ): Promise<NextResponse<AssignmentsResponse | { error: string }>> {
     try {
-        const auth = await requireAuth(request);
-        if (auth instanceof NextResponse) {
-            return auth as NextResponse<AssignmentsResponse | { error: string }>;
-        }
-
         const ip = getClientIp(request);
-        if (!(await RateLimits.GENERAL(ip, auth.userId))) {
+        if (!(await RateLimits.GENERAL(ip))) {
             return NextResponse.json({ error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
         }
 
