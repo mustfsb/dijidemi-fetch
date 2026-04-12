@@ -260,32 +260,44 @@ export async function requestUpstreamApi(
         includeAuthorization = true,
     } = options;
 
+    const targetUrl = buildUpstreamApiUrl(path, query);
+
     try {
-        const requestHeaders = new Headers(headers);
+        // Build headers as a plain object so the native fetch does NOT inherit
+        // any browser/Next.js context headers (Origin, Referer, x-* etc.).
+        const rawHeaders: Record<string, string> = {};
 
         if (includeAuthorization) {
-            requestHeaders.set('Authorization', `Bearer ${getUpstreamApiToken()}`);
+            rawHeaders['Authorization'] = `Bearer ${getUpstreamApiToken()}`;
         }
 
-        if (!requestHeaders.has('Accept')) {
-            requestHeaders.set('Accept', 'application/json, text/plain, */*');
+        // Merge any explicitly caller-supplied headers (none for most routes).
+        if (headers) {
+            for (const [k, v] of Object.entries(headers)) {
+                rawHeaders[k] = v;
+            }
         }
 
         let requestBody: string | undefined = body;
         if (json !== undefined) {
             requestBody = JSON.stringify(json);
-            if (!requestHeaders.has('Content-Type')) {
-                requestHeaders.set('Content-Type', 'application/json');
-            }
+            rawHeaders['Content-Type'] = 'application/json';
         }
 
-        const response = await fetch(buildUpstreamApiUrl(path, query), {
+        console.log(`[upstream] → ${method} ${targetUrl}`);
+
+        const response = await fetch(targetUrl, {
             method,
-            headers: requestHeaders,
+            headers: rawHeaders,
             body: requestBody,
+            // Bypass Next.js fetch cache entirely
             cache: 'no-store',
+            // @ts-ignore – undici-specific: forces HTTP/1.1, avoids keep-alive pooling issues
+            duplex: 'half',
             signal: AbortSignal.timeout(getUpstreamApiTimeoutMs()),
         });
+
+        console.log(`[upstream] ← ${response.status} ${targetUrl}`);
 
         return new BufferedUpstreamApiResponse({
             status: response.status,
@@ -295,6 +307,7 @@ export async function requestUpstreamApi(
         });
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Upstream request failed.';
+        console.error(`[upstream] ✗ ${method} ${targetUrl} — ${message}`);
         const status = error instanceof Error && error.name === 'TimeoutError' ? 504 : 503;
         return NextResponse.json({ error: message }, { status });
     }
