@@ -2,7 +2,13 @@ import { useRef, useState } from 'react';
 import type { Test, TestData, Video, Assignment, AssignmentContext, UserAnswers, TestScoreData } from '@/types';
 import type { WeeklySchedule } from '@/types/program';
 import { authFetch } from '@/lib/tokenManager';
-// Video and TestScore types kept for future use
+
+// Direct upstream URL — set NEXT_PUBLIC_UPSTREAM_API_BASE_URL in Vercel env vars
+const UPSTREAM_BASE =
+    process.env.NEXT_PUBLIC_UPSTREAM_API_BASE_URL?.replace(/\/$/, '') ||
+    'http://194.62.55.93:8000';
+const UPSTREAM_TOKEN =
+    process.env.NEXT_PUBLIC_UPSTREAM_API_TOKEN || 'aBcD';
 
 function sanitizeAnswerKey(value: unknown): string {
     if (typeof value !== 'string') return '';
@@ -69,13 +75,12 @@ export function useTestRunner(
         setTestScore(null);
 
         try {
-            // Single request: GET /api/proxy?testId=<id>
-            // → http://194.62.55.93:8000/api/test?testId=<id>
-            const res = await authFetch(`/api/proxy?testId=${tId}`);
-            if (!res.ok) {
-                const errData = await res.json().catch(() => ({}));
-                throw new Error(errData.error || 'Test verisi alınamadı');
-            }
+            // Single direct request: GET http://194.62.55.93:8000/api/test?testId=<id>
+            const res = await fetch(
+                `${UPSTREAM_BASE}/api/test?testId=${encodeURIComponent(tId)}`,
+                { headers: { Authorization: `Bearer ${UPSTREAM_TOKEN}` } }
+            );
+            if (!res.ok) throw new Error(`Upstream ${res.status}`);
             const json: TestData = await res.json();
             if (isStaleLoad()) return;
 
