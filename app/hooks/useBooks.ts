@@ -1,7 +1,30 @@
 import { useState, useMemo } from 'react';
 import type { Book, BooksBySubject, Test } from '@/types';
 import booksData from '@/app/data/books.json';
-import { authFetch } from '@/lib/tokenManager';
+
+const UPSTREAM_BASE =
+    process.env.NEXT_PUBLIC_UPSTREAM_API_BASE_URL?.replace(/\/$/, '') ||
+    'https://diji-fetch.duckdns.org';
+const UPSTREAM_TOKEN =
+    process.env.NEXT_PUBLIC_UPSTREAM_API_TOKEN || 'aBcD';
+
+function decodeHtmlEntities(value: string): string {
+    return value
+        .replace(/&#(\d+);/g, (_match, dec) => String.fromCharCode(parseInt(dec, 10)))
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'");
+}
+
+function parseBookTestsFromHtml(html: string): Test[] {
+    const regex = /<h3>(.*?)<\/h3>[\s\S]*?data-rowid="(\d+)"/g;
+    return [...html.matchAll(regex)].map((match) => ({
+        name: decodeHtmlEntities(match[1].trim()).replace(/\s+/g, ' '),
+        id: match[2],
+    }));
+}
 
 const groupBooksBySubject = (books: Book[]): BooksBySubject => {
     const subjectGroups: BooksBySubject = {};
@@ -43,17 +66,28 @@ export function useBooks() {
         setBookError(null);
         setBookTests([]);
         try {
-            const res = await authFetch('/api/book-tests', {
+            const res = await fetch(`${UPSTREAM_BASE}/api/proxy`, {
                 method: 'POST',
-                body: JSON.stringify({ id: book.id })
+                headers: {
+                    'Authorization': `Bearer ${UPSTREAM_TOKEN}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    url: `https://www.dijidemi.com/Ogrenci/KitapTestlerTable?Id=${encodeURIComponent(book.id)}&___layout=`,
+                    method: 'POST',
+                    body: '',
+                }),
             });
-            const d = await res.json().catch(() => ({}));
 
-            if (!res.ok || !d.success) {
-                throw new Error(typeof d.error === 'string' ? d.error : 'Testler yüklenemedi');
-            }
+            if (!res.ok) throw new Error('Testler yüklenemedi');
 
-            setBookTests(Array.isArray(d.tests) ? d.tests : []);
+            const data = await res.json();
+            const html = typeof data.body === 'string' ? data.body : '';
+            const tests = parseBookTestsFromHtml(html);
+
+            if (tests.length === 0) throw new Error('Test listesi boş geldi');
+
+            setBookTests(tests);
         } catch (e) {
             setBookError(e instanceof Error ? e.message : 'Testler yüklenemedi');
         } finally {
