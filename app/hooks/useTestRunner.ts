@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { Test, TestData, Video, Assignment, AssignmentContext, UserAnswers, TestScoreData } from '@/types';
 import type { WeeklySchedule } from '@/types/program';
 import { authFetch } from '@/lib/tokenManager';
@@ -51,8 +51,13 @@ export function useTestRunner(
     const [isSaving, setIsSaving] = useState<boolean>(false);
     const [testScore, setTestScore] = useState<TestScoreData | null>(null);
     const [loadingScore, setLoadingScore] = useState<boolean>(false);
+    const activeLoadIdRef = useRef<number>(0);
 
     const loadTest = async (tId: string, context: AssignmentContext | null = null): Promise<void> => {
+        const loadId = activeLoadIdRef.current + 1;
+        activeLoadIdRef.current = loadId;
+        const isStaleLoad = (): boolean => activeLoadIdRef.current !== loadId;
+
         setLoading(true);
         setError(null);
         setData(null);
@@ -80,15 +85,23 @@ export function useTestRunner(
         authFetch(`/api/student/test-answers?testId=${tId}`)
             .then(r => r.json())
             .then((scoreData: TestScoreData) => {
-                if (scoreData.success) setTestScore(scoreData);
+                if (!isStaleLoad() && scoreData.success) {
+                    setTestScore(scoreData);
+                }
             })
             .catch(err => console.error(err))
-            .finally(() => setLoadingScore(false));
+            .finally(() => {
+                if (!isStaleLoad()) {
+                    setLoadingScore(false);
+                }
+            });
 
         try {
             const res = await authFetch(`/api/proxy?testId=${tId}`);
             if (!res.ok) throw new Error('Test verisi alınamadı');
             const json: TestData = await res.json();
+            if (isStaleLoad()) return;
+
             const answerKey = resolveAnswerKey(json as Record<string, unknown>);
             const normalizedData: TestData = {
                 ...json,
@@ -108,6 +121,7 @@ export function useTestRunner(
                     `/api/videos?testId=${encodeURIComponent(tId)}&count=${count}`,
                     { headers: { 'Accept': 'text/event-stream' } }
                 );
+                if (isStaleLoad()) return;
 
                 if (!videosRes.ok || !videosRes.body) {
                     setVideoStatus('Video çözümü yüklenemedi');
@@ -116,10 +130,15 @@ export function useTestRunner(
                     const decoder = new TextDecoder();
                     let buffer = '';
                     let loaded = 0;
+                    const seenQuestions = new Set<number>();
 
                     outer: while (true) {
                         const { done, value } = await reader.read();
                         if (done) break;
+                        if (isStaleLoad()) {
+                            await reader.cancel().catch(() => undefined);
+                            break;
+                        }
 
                         buffer += decoder.decode(value, { stream: true });
                         const lines = buffer.split('\n');
@@ -138,11 +157,17 @@ export function useTestRunner(
                                     break outer;
                                 }
                                 if (event.q && event.url) {
-                                    loaded++;
-                                    setVideos(prev =>
-                                        [...prev, { q: event.q, url: event.url }]
-                                            .sort((a, b) => a.q - b.q)
-                                    );
+                                    if (!seenQuestions.has(event.q)) {
+                                        seenQuestions.add(event.q);
+                                        loaded++;
+                                    }
+
+                                    setVideos(prev => {
+                                        const next = prev.filter(video => video.q !== event.q);
+                                        next.push({ q: event.q, url: event.url });
+                                        next.sort((a, b) => a.q - b.q);
+                                        return next;
+                                    });
                                     setVideoStatus(`Video çözümler yükleniyor (${loaded}/${count})...`);
                                 }
                             } catch { /* malformed event, skip */ }
@@ -150,14 +175,20 @@ export function useTestRunner(
                     }
                 }
             } catch {
-                setVideoStatus('Video çözümü yüklenemedi');
+                if (!isStaleLoad()) {
+                    setVideoStatus('Video çözümü yüklenemedi');
+                }
             }
 
         } catch (e) {
-            setError(e instanceof Error ? e.message : 'Bilinmeyen hata');
-            setVideoStatus('Hata');
+            if (!isStaleLoad()) {
+                setError(e instanceof Error ? e.message : 'Bilinmeyen hata');
+                setVideoStatus('Hata');
+            }
         } finally {
-            setLoading(false);
+            if (!isStaleLoad()) {
+                setLoading(false);
+            }
         }
     };
 

@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-    isLocalBrowserMode,
     requireAuth,
     getClientIp,
-    createMissingDijidemiSessionResponse,
 } from '@/lib/auth';
-import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
-import { fetchManyViaBrowser } from '@/lib/dijidemi/productionBrowserManager';
-import cookieManager from '@/lib/cookie/cookieManager';
 import { RateLimits } from '@/lib/rate-limit';
+import {
+    extractVideoUrlFromPayload,
+    readBufferedUpstreamPayload,
+    requestUpstreamApi,
+} from '@/lib/upstreamApi';
 
 export const maxDuration = 25;
 
@@ -22,27 +22,21 @@ function parseNumericParam(value: string | null, field: string): string | NextRe
     return normalized;
 }
 
-function extractVideoUrl(html: string): string | null {
-    const videoSrcMatch = html.match(/<video[^>]*src="([^"]+)"/i);
-    if (videoSrcMatch) return videoSrcMatch[1];
+async function fetchVideoUrl(testId: string, soruId: number): Promise<string | null> {
+    const response = await requestUpstreamApi({
+        path: '/api/video',
+        method: 'POST',
+        json: {
+            testId: Number(testId),
+            soruId,
+        },
+    });
 
-    const sourceSrcMatch = html.match(/<source[^>]*src="([^"]+)"/i);
-    if (sourceSrcMatch) return sourceSrcMatch[1];
+    if (response instanceof NextResponse || !response.ok) {
+        return null;
+    }
 
-    const mp4Match = html.match(/"([^"]+\.mp4)"/);
-    if (mp4Match) return mp4Match[1];
-
-    return null;
-}
-
-function isChallengeHtml(body: string): boolean {
-    const normalized = body.toLowerCase();
-    return (
-        normalized.includes('just a moment')
-        || normalized.includes('bir dakika lütfen')
-        || normalized.includes('enable javascript and cookies to continue')
-        || normalized.includes('güvenlik doğrulaması gerçekleştirme')
-    );
+    return extractVideoUrlFromPayload(readBufferedUpstreamPayload(response));
 }
 
 /**
@@ -72,86 +66,38 @@ export async function GET(request: NextRequest) {
     const rawCount = parseInt(searchParams.get('count') || '40', 10);
     const count = Number.isFinite(rawCount) && rawCount >= 1 && rawCount <= 100 ? rawCount : 40;
 
-    const videoUrl = `https://www.dijidemi.com/Ogrenci2020/Video?___layout`;
     const encoder = new TextEncoder();
 
     const stream = new ReadableStream({
         async start(controller) {
             let foundCount = 0;
-            let blocked = false;
 
             const emit = (data: object) => {
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
             };
 
             try {
-                if (isLocalBrowserMode()) {
-                    // Local browser mode: sequential requests through localDijidemiBrowserManager
-                    for (let soruId = 1; soruId <= count; soruId++) {
-                        const body = new URLSearchParams({
-                            tur: '2', sinavId: '0', sinavTuru: '2',
-                            testId, soruId: String(soruId),
-                        }).toString();
+                const concurrency = Math.min(8, count);
+                let nextQuestion = 1;
 
-                        const response = await requestDijidemiUpstream({
-                            request,
-                            userId: auth.userId,
-                            url: videoUrl,
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                            body,
-                            referrer: 'https://www.dijidemi.com/Ogrenci2020',
-                        });
+                const worker = async (): Promise<void> => {
+                    while (nextQuestion <= count) {
+                        const soruId = nextQuestion;
+                        nextQuestion += 1;
 
-                        if (response instanceof NextResponse) {
-                            blocked = true;
-                            break;
-                        }
+                        const url = await fetchVideoUrl(testId, soruId);
+                        if (!url) continue;
 
-                        if (response.ok) {
-                            const html = await response.text();
-                            const url = extractVideoUrl(html);
-                            if (url) {
-                                foundCount++;
-                                emit({ q: soruId, url });
-                            }
-                        }
+                        foundCount += 1;
+                        emit({ q: soruId, url });
                     }
-                } else {
-                    // Production mode: browser-based fetches in parallel (Chrome TLS fingerprint)
-                    const cookies = await cookieManager.getCookies();
-                    if (!cookies.some(c => c.name === 'ASP.NET_SessionId' && c.value)) {
-                        emit({ error: 'missing_session' });
-                        return;
-                    }
+                };
 
-                    const requests = Array.from({ length: count }, (_, i) => {
-                        const soruId = i + 1;
-                        return {
-                            url: videoUrl,
-                            method: 'POST' as const,
-                            headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-                            body: new URLSearchParams({
-                                tur: '2', sinavId: '0', sinavTuru: '2',
-                                testId, soruId: String(soruId),
-                            }).toString(),
-                            referrer: 'https://www.dijidemi.com/Ogrenci2020',
-                        };
-                    });
+                await Promise.all(
+                    Array.from({ length: concurrency }, () => worker())
+                );
 
-                    await fetchManyViaBrowser(requests, cookies, (index, result) => {
-                        if (!result) return;
-                        if (isChallengeHtml(result.body)) { blocked = true; return; }
-                        const url = extractVideoUrl(result.body);
-                        if (url) { foundCount++; emit({ q: index + 1, url }); }
-                    });
-                }
-
-                if (blocked && foundCount === 0) {
-                    emit({ error: 'cloudflare_blocked' });
-                } else {
-                    emit({ done: true, found: foundCount, total: count });
-                }
+                emit({ done: true, found: foundCount, total: count });
             } catch (err) {
                 console.error('Videos SSE Error:', err instanceof Error ? err.message.substring(0, 100) : 'Unknown');
                 emit({ error: 'internal_error' });

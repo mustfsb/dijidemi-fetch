@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import cookieManager from '@/lib/cookie/cookieManager';
+import {
+    readBufferedUpstreamPayload,
+    requestUpstreamApi,
+} from '@/lib/upstreamApi';
 
 export async function GET(request: NextRequest) {
     // Verify request is from authorized cron source
@@ -13,9 +16,35 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-        console.log('Cron job triggered: Refreshing cookies...');
-        await cookieManager.refreshCookies();
-        return NextResponse.json({ success: true, message: 'Cookies refreshed' });
+        const response = await requestUpstreamApi({
+            path: '/api/refresh-cookies',
+            method: 'POST',
+        });
+
+        if (response instanceof NextResponse) {
+            return response;
+        }
+
+        const payload = readBufferedUpstreamPayload(response);
+        const payloadRecord = (
+            payload
+            && typeof payload === 'object'
+            && !Array.isArray(payload)
+        ) ? payload as Record<string, unknown> : null;
+
+        if (!response.ok) {
+            const errorMessage = typeof payloadRecord?.error === 'string'
+                ? payloadRecord.error
+                : 'Failed to refresh upstream state';
+
+            return NextResponse.json({ success: false, error: errorMessage }, { status: response.status });
+        }
+
+        if (payloadRecord) {
+            return NextResponse.json(payloadRecord);
+        }
+
+        return NextResponse.json({ success: true, message: 'Refresh triggered' });
     } catch (error) {
         console.error('Cron job failed:', error);
         return NextResponse.json({ success: false, error: 'Failed to refresh cookies' }, { status: 500 });

@@ -3,8 +3,12 @@ import {
     requireAuth,
     getClientIp,
 } from '@/lib/auth';
-import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
 import { RateLimits } from '@/lib/rate-limit';
+import {
+    readBufferedUpstreamPayload,
+    requestUpstreamApi,
+    UPSTREAM_API_DEFAULTS,
+} from '@/lib/upstreamApi';
 
 interface TestAnswersResponse {
     success: boolean;
@@ -52,29 +56,13 @@ export async function GET(request: NextRequest): Promise<NextResponse<TestAnswer
     if (turID instanceof NextResponse) return turID;
 
     try {
-        // Build URL with timestamp
-        const timestamp = Date.now().toString();
-        const url = new URL('https://www.dijidemi.com/Ogrenci2020/GetOgrenciTestCevaplar');
-        url.search = new URLSearchParams({
-            testId,
-            turID,
-            _: timestamp,
-        }).toString();
-
-        const response = await requestDijidemiUpstream({
-            request,
-            userId: auth.userId,
-            url: url.toString(),
+        const response = await requestUpstreamApi({
+            path: '/api/test-answers',
             method: 'GET',
-            headers: {
-                'Accept': 'application/json, text/javascript, */*; q=0.01',
-                'X-Requested-With': 'XMLHttpRequest',
+            query: {
+                testId,
+                turID: turID || UPSTREAM_API_DEFAULTS.turID,
             },
-            additionalCookies: {
-                kullaniciId: '0',
-                soruCevap: JSON.stringify({ 0: {} }),
-            },
-            referrer: 'https://www.dijidemi.com/Ogrenci2020',
         });
         if (response instanceof NextResponse) return response as NextResponse<TestAnswersResponse>;
 
@@ -85,7 +73,15 @@ export async function GET(request: NextRequest): Promise<NextResponse<TestAnswer
             }, { status: response.status });
         }
 
-        const data = await response.json<DijidemiTestAnswersPayload>();
+        const payload = readBufferedUpstreamPayload(response);
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+            return NextResponse.json({
+                success: false,
+                error: 'Beklenmeyen API yanıtı'
+            }, { status: 502 });
+        }
+
+        const data = payload as DijidemiTestAnswersPayload;
 
         if (!data.Success) {
             return NextResponse.json({

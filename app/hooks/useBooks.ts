@@ -41,15 +41,21 @@ export function useBooks() {
         setSelectedBook(book);
         setLoadingTests(true);
         setBookError(null);
+        setBookTests([]);
         try {
             const res = await authFetch('/api/book-tests', {
                 method: 'POST',
                 body: JSON.stringify({ id: book.id })
             });
-            const d = await res.json();
-            if (d.success) setBookTests(d.tests);
+            const d = await res.json().catch(() => ({}));
+
+            if (!res.ok || !d.success) {
+                throw new Error(typeof d.error === 'string' ? d.error : 'Testler yüklenemedi');
+            }
+
+            setBookTests(Array.isArray(d.tests) ? d.tests : []);
         } catch (e) {
-            setBookError('Testler yüklenemedi');
+            setBookError(e instanceof Error ? e.message : 'Testler yüklenemedi');
         } finally {
             setLoadingTests(false);
         }

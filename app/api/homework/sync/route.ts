@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
 import { supabase } from '@/lib/db/supabase';
 import { getClientIp } from '@/lib/auth';
-import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
 import { RateLimits } from '@/lib/rate-limit';
+import {
+  parseAssignmentsPayload,
+  readBufferedUpstreamPayload,
+  requestUpstreamApi,
+} from '@/lib/upstreamApi';
 
 export const maxDuration = 25;
 
@@ -48,82 +52,30 @@ export async function POST(request: NextRequest) {
     
     let assignments: any[] = [];
 
-    // --- DIJIDEMI FETCH LOGIC ---
     {
-        const endpoints = [
-            'https://www.dijidemi.com/Ogrenci/_OdevDurum?___layout',
-            'https://www.dijidemi.com/Ogrenci/OdevDurum',
-        ];
+        const response = await requestUpstreamApi({
+            path: '/api/proxy',
+            method: 'POST',
+            json: {
+                url: 'https://www.dijidemi.com/Ogrenci/_OdevDurum?___layout',
+                method: 'POST',
+                body: '',
+            },
+        });
 
-        let html = '';
-        let fetchSuccess = false;
-
-        for (const url of endpoints) {
-            try {
-                const response = await requestDijidemiUpstream({
-                    request,
-                    url,
-                    method: 'POST',
-                    headers: {
-                        'Accept': 'text/html, */*; q=0.01',
-                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                        'X-Requested-With': 'XMLHttpRequest',
-                    },
-                    body: '',
-                    additionalCookies: {
-                        kullaniciId: '0',
-                        soruCevap: JSON.stringify({ 0: {} }),
-                    },
-                    referrer: 'https://www.dijidemi.com/Ogrenci',
-                });
-
-                if (response instanceof NextResponse) {
-                    return response;
-                }
-
-                if (response.ok) {
-                    html = await response.text();
-                    fetchSuccess = true;
-                    break;
-                }
-            } catch (e) {
-                console.error(`Fetch fail from ${url}:`, e);
-            }
+        if (response instanceof NextResponse) {
+            return response;
         }
 
-        if (fetchSuccess && html) {
-             const decodeEntities = (str: string): string => {
-                return str
-                    .replace(/&#(\d+);/g, (_match, dec) => String.fromCharCode(parseInt(dec, 10)))
-                    .replace(/&amp;/g, '&')
-                    .replace(/&lt;/g, '<')
-                    .replace(/&gt;/g, '>')
-                    .replace(/&quot;/g, '"')
-                    .replace(/&#39;/g, "'");
-            };
-            
-            // Regex for Dijidemi Homework List
-            const regex1 = /<p class="font-small-1 m-0">([^<]+)<\/p>\s*<span>\s*([^<]+)\s*<\/span>[\s\S]*?data-rowid="(\d+)"/g;
-            let match;
-            while ((match = regex1.exec(html)) !== null) {
-                assignments.push({
-                    title: decodeEntities(match[1].trim()),
-                    dateRange: match[2].trim(),
-                    id: match[3]
-                });
-            }
-            
-            // Fallback Regex
-            if (assignments.length === 0) {
-                 const rowIdRegex = /data-rowid="(\d+)"/g;
-                 const rowIds: string[] = [];
-                 while ((match = rowIdRegex.exec(html)) !== null) {
-                    if (!rowIds.includes(match[1])) rowIds.push(match[1]);
-                 }
-                 rowIds.forEach((id, idx) => {
-                     assignments.push({ id, title: `Ödev ${idx+1}`, dateRange: '' });
-                 });
-            }
+        if (response.ok) {
+            const payload = readBufferedUpstreamPayload(response);
+            const payloadRecord = (
+                payload
+                && typeof payload === 'object'
+                && !Array.isArray(payload)
+            ) ? payload as Record<string, unknown> : null;
+            const html = typeof payloadRecord?.body === 'string' ? payloadRecord.body : '';
+            assignments = parseAssignmentsPayload(html);
         }
     }
 

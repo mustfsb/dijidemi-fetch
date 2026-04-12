@@ -64,7 +64,8 @@ export async function GET(request: NextRequest) {
       return {
         ...(parseAssignmentDescription(h.description, type)),
         id: h.homework_identifier,
-        link: `https://www.dijidemi.com/Ogrenci/Odev?id=${h.homework_identifier}`,
+        // The client never uses this field; keep it blank instead of exposing the upstream service URL.
+        link: '',
         status: h.status,
         type,
       };

@@ -4,11 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "analyze": "tsx scripts/update-program.ts",
-    "smoke:local": "tsx scripts/smoke-local-dijidemi.ts",
-    "seed-cookies": "tsx scripts/seed-cookies.ts",
-    "sync-books": "tsx scripts/sync-book-tests.ts",
-    "build": "tsx scripts/update-program.ts && next build",
+    "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "vercel-build": "next build"
@@ -37,7 +33,7 @@
     "hls.js": "^1.6.15",
     "katex": "^0.16.27",
     "lucide-react": "^0.330.0",
-    "next": "^15.5.12",
+    "next": "^15.5.15",
     "next-themes": "^0.2.1",
     "playwright": "^1.57.0",
     "playwright-core": "^1.57.0",
@@ -50,7 +46,6 @@
     "remark-math": "^6.0.0",
     "sonner": "^1.4.0",
     "tailwind-merge": "^2.6.0",
-    "tailwindcss-animate": "^1.0.7",
     "uuid": "^13.0.0"
   },
   "devDependencies": {
@@ -62,8 +57,26 @@
     "@types/react-dom": "^18.2.19",
     "autoprefixer": "^10.4.17",
     "postcss": "^8.4.35",
-    "tailwindcss": "^3.4.1",
+    "tailwindcss": "^3.4.19",
+    "tailwindcss-animate": "^1.0.7",
     "tsx": "^4.21.0",
     "typescript": "^5.3.3"
+  },
+  "overrides": {
+    "anymatch": {
+      "picomatch": "^2.3.2"
+    },
+    "micromatch": {
+      "picomatch": "^2.3.2"
+    },
+    "readdirp": {
+      "picomatch": "^2.3.2"
+    },
+    "fdir": {
+      "picomatch": "^4.0.4"
+    },
+    "tinyglobby": {
+      "picomatch": "^4.0.4"
+    }
   }
 }

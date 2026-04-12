@@ -3,7 +3,11 @@ import {
     requireAuth,
     getClientIp,
 } from '@/lib/auth';
-import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
+import {
+    readBufferedUpstreamPayload,
+    requestUpstreamApi,
+    UPSTREAM_API_DEFAULTS,
+} from '@/lib/upstreamApi';
 import { RateLimits } from '@/lib/rate-limit';
 
 export const maxDuration = 25;
@@ -32,27 +36,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const { searchParams } = new URL(request.url);
     const testId = parseNumericParam(searchParams.get('testId'), 'testId');
     if (testId instanceof NextResponse) return testId;
-    const programId = parseNumericParam(searchParams.get('programId') || '14308', 'programId');
+    const programId = parseNumericParam(searchParams.get('programId') || UPSTREAM_API_DEFAULTS.programId, 'programId');
     if (programId instanceof NextResponse) return programId;
-    const testTur = parseNumericParam(searchParams.get('testTur') || '1', 'testTur');
-    if (testTur instanceof NextResponse) return testTur;
-
-    const baseUrl = 'https://www.dijidemi.com/MobilService/GetTestById';
-    const params = new URLSearchParams({
-        testId,
-        programId,
-        testTur,
-    });
-    const url = `${baseUrl}?${params.toString()}`;
-
-    console.log(`Proxying request for testId: ${testId}`);
 
     try {
-        const response = await requestDijidemiUpstream({
-            request,
-            userId: auth.userId,
-            url,
+        const response = await requestUpstreamApi({
+            path: '/api/test',
             method: 'GET',
+            query: {
+                testId,
+                programId,
+            },
         });
         if (response instanceof NextResponse) return response;
 
@@ -60,7 +54,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             throw new Error(`Upstream API responded with ${response.status}`);
         }
 
-        const data = await response.json();
+        const data = readBufferedUpstreamPayload(response);
         return NextResponse.json(data);
 
     } catch (error) {

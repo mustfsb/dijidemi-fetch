@@ -2,10 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/server';
 import { supabase } from '@/lib/db/supabase';
 import { getClientIp } from '@/lib/auth';
-import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
 import { RateLimits } from '@/lib/rate-limit';
+import {
+    readBufferedUpstreamPayload,
+    requestUpstreamApi,
+    UPSTREAM_API_DEFAULTS,
+} from '@/lib/upstreamApi';
 
 export const maxDuration = 25;
+
+const NUMERIC_ID_PATTERN = /^\d+$/;
 
 type KttData = {
     resolvedTestId: string;
@@ -39,6 +45,14 @@ async function requireAdmin() {
     }
 
     return { user, username };
+}
+
+function parseNumericParam(value: unknown, field: string): string | NextResponse {
+    const normalized = String(value || '').trim();
+    if (!normalized || normalized.length > 64 || !NUMERIC_ID_PATTERN.test(normalized)) {
+        return NextResponse.json({ success: false, error: `Geçersiz ${field}` }, { status: 400 });
+    }
+    return normalized;
 }
 
 function extractTitle(data: Record<string, unknown>): string {
@@ -82,97 +96,41 @@ function extractAnswerKey(data: Record<string, unknown>): string {
     return '';
 }
 
-async function fetchKttData(request: NextRequest, testId: string, programId: string): Promise<KttData | NextResponse> {
-    const base = 'https://www.dijidemi.com/MobilService/GetTestById';
+async function fetchKttData(testId: string, programId: string): Promise<KttData | NextResponse> {
+    const response = await requestUpstreamApi({
+        path: '/api/test',
+        method: 'GET',
+        query: {
+            testId,
+            programId,
+        },
+    });
 
-    // Try same combinations as proxy, testTur=1 first (matches /api/proxy default)
-    const urls = [
-        `${base}?testId=${encodeURIComponent(testId)}&programId=${encodeURIComponent(programId)}&testTur=1`,
-        `${base}?testId=${encodeURIComponent(testId)}&programId=${encodeURIComponent(programId)}&testTur=2`,
-        `${base}?testId=${encodeURIComponent(testId)}&testTur=1`,
-        `${base}?testId=${encodeURIComponent(testId)}`,
-    ];
-
-    let lastError = '';
-    let bestData: Record<string, unknown> | null = null;
-    let bestTitle = '';
-    let bestAnswerKey = '';
-
-    for (const url of urls) {
-        let response;
-        try {
-            response = await requestDijidemiUpstream({
-                request,
-                url,
-                method: 'GET',
-            });
-        } catch (err: any) {
-            lastError = err.message;
-            continue;
-        }
-
-        if (response instanceof NextResponse) {
-            return response;
-        }
-
-        if (!response.ok) {
-            lastError = `HTTP ${response.status}`;
-            continue;
-        }
-
-        let data: Record<string, unknown>;
-        try {
-            data = await response.json();
-        } catch {
-            lastError = 'JSON parse error';
-            continue;
-        }
-
-        const title = extractTitle(data);
-        const answerKey = extractAnswerKey(data);
-
-        // Keep the best result (has both title and answer key)
-        if (title && answerKey) {
-            const resolvedId = String(data.TestId || data.testId || data.Id || testId);
-            return {
-                resolvedTestId: resolvedId,
-                title,
-                answerKey,
-                questionCount: (typeof data.SoruSayisi === 'number' ? data.SoruSayisi : answerKey.length) || 0,
-                raw: data,
-            };
-        }
-
-        // Partial match: has at least a title
-        if (title && !bestTitle) {
-            bestTitle = title;
-            bestAnswerKey = answerKey;
-            bestData = data;
-        }
-
-        // Partial match: has at least an answer key
-        if (answerKey && !bestAnswerKey) {
-            bestAnswerKey = answerKey;
-            if (!bestData) bestData = data;
-        }
-
-        if (!bestData) bestData = data;
+    if (response instanceof NextResponse) {
+        return response;
     }
 
-    if (bestData) {
-        const title = bestTitle || `KTT #${testId}`;
-        const answerKey = bestAnswerKey;
-        const resolvedId = String(bestData.TestId || bestData.testId || bestData.Id || testId);
-        return {
-            resolvedTestId: resolvedId,
-            title,
-            answerKey,
-            questionCount: (typeof bestData.SoruSayisi === 'number' ? bestData.SoruSayisi : answerKey.length) || 0,
-            raw: bestData,
-        };
+    if (!response.ok) {
+        throw new Error(`Test verisi alınamadı (HTTP ${response.status}). testId: ${testId}`);
     }
 
-    throw new Error(`GetTestById başarısız (${lastError || 'yanıt yok'}). testId: ${testId}`);
+    const payload = readBufferedUpstreamPayload(response);
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        throw new Error(`Beklenmeyen test yanıtı. testId: ${testId}`);
+    }
+
+    const data = payload as Record<string, unknown>;
+    const title = extractTitle(data) || `KTT #${testId}`;
+    const answerKey = extractAnswerKey(data);
+    const resolvedId = String(data.TestId || data.testId || data.Id || testId);
+
+    return {
+        resolvedTestId: resolvedId,
+        title,
+        answerKey,
+        questionCount: (typeof data.SoruSayisi === 'number' ? data.SoruSayisi : answerKey.length) || 0,
+        raw: data,
+    };
 }
 
 async function insertOrUpdateKttHomework(ktt: KttData) {
@@ -247,15 +205,13 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const testId = searchParams.get('testId');
-    const programId = searchParams.get('programId') || '14308';
-
-    if (!testId) {
-        return NextResponse.json({ success: false, error: 'Missing testId' }, { status: 400 });
-    }
+    const testId = parseNumericParam(searchParams.get('testId'), 'testId');
+    if (testId instanceof NextResponse) return testId;
+    const programId = parseNumericParam(searchParams.get('programId') || UPSTREAM_API_DEFAULTS.programId, 'programId');
+    if (programId instanceof NextResponse) return programId;
 
     try {
-        const ktt = await fetchKttData(request, testId, programId);
+        const ktt = await fetchKttData(testId, programId);
         if (ktt instanceof NextResponse) return ktt;
         return NextResponse.json({
             success: true,
@@ -281,15 +237,13 @@ export async function POST(request: NextRequest) {
 
     try {
         const body = await request.json();
-        const testId = String(body?.testId || '').trim();
-        const programId = String(body?.programId || '14308');
+        const testId = parseNumericParam(body?.testId, 'testId');
+        if (testId instanceof NextResponse) return testId;
+        const programId = parseNumericParam(body?.programId || UPSTREAM_API_DEFAULTS.programId, 'programId');
+        if (programId instanceof NextResponse) return programId;
         const save = Boolean(body?.save);
 
-        if (!testId) {
-            return NextResponse.json({ success: false, error: 'Missing testId' }, { status: 400 });
-        }
-
-        const ktt = await fetchKttData(request, testId, programId);
+        const ktt = await fetchKttData(testId, programId);
         if (ktt instanceof NextResponse) return ktt;
 
         if (!save) {

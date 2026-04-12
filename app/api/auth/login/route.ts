@@ -3,7 +3,6 @@ import {
     getClientIp,
     isLocalBrowserMode,
     setDijidemiSessionCookie,
-    setDijidemiUpstreamCookies,
 } from '@/lib/auth';
 import { RateLimits } from '@/lib/rate-limit';
 import {
@@ -13,7 +12,6 @@ import {
 } from '@/lib/private-test/device-gate';
 import { syncDijidemiUserToDatabase } from '@/lib/auth/syncDijidemiUser';
 import { localDijidemiBrowserManager } from '@/lib/dijidemi/localBrowserManager';
-import cookieManager from '@/lib/cookie/cookieManager';
 
 interface LoginBody {
     username: string;
@@ -70,8 +68,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<LoginApiR
             }, { status: 202 });
         }
 
-        // Production: validate against env vars, then check Supabase for a live session.
-        // Never contact dijidemi.com from Lambda — cf_clearance is IP-bound and Lambda IPs are blocked.
+        // Production: validate against configured credentials, then issue app session cookies.
         const expectedUsername = process.env.DIJIDEMI_USERNAME?.trim();
         const expectedPassword = process.env.DIJIDEMI_PASSWORD?.trim();
 
@@ -82,21 +79,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<LoginApiR
         if (trimmedUsername !== expectedUsername || trimmedPassword !== expectedPassword) {
             return NextResponse.json({ error: 'Kullanıcı adı veya şifre hatalı.' }, { status: 401 });
         }
-
-        // Verify that a seeded automation session exists in Supabase
-        const automationCookies = await cookieManager.getCookies();
-        const hasSession = automationCookies.some(c => c.name === 'ASP.NET_SessionId' && c.value);
-        if (!hasSession) {
-            return NextResponse.json({
-                error: 'Dijidemi oturumu bulunamadı. Lütfen yerel makinede "npm run seed-cookies" çalıştırın.',
-            }, { status: 503 });
-        }
-
-        // Build a cookie map for upstream cookie headers
-        const upstreamCookies = automationCookies.reduce<Record<string, string>>((acc, c) => {
-            acc[c.name] = c.value;
-            return acc;
-        }, {});
 
         // --- USER SYNC: Check & Create ---
         const userId = await syncDijidemiUserToDatabase(trimmedUsername, request);
@@ -110,7 +92,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<LoginApiR
             user_id: userId,
         });
         response.headers.set('Cache-Control', 'no-store');
-        setDijidemiUpstreamCookies(response, upstreamCookies);
 
         const signedUserId = await signUserId(userId);
         if (!signedUserId) {

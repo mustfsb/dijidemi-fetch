@@ -74,6 +74,10 @@ export async function middleware(request: NextRequest) {
 
     // 2. API Koruması ve CSRF Kontrolü
     if (pathname.startsWith('/api/')) {
+        response.headers.set('Cache-Control', 'no-store, max-age=0');
+        response.headers.set('Pragma', 'no-cache');
+        response.headers.set('Vary', 'Origin, Cookie');
+
         const method = request.method.toUpperCase();
         if (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE') {
             const lengthHeader = request.headers.get('content-length');

@@ -19,6 +19,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -70,6 +71,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("books");
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [showSettings, setShowSettings] = useState<boolean>(false);
+  const [showAnnouncement, setShowAnnouncement] = useState<boolean>(true);
   const [scrolled, setScrolled] = useState(false);
   const [toast, setToast] = useState<ToastState>({
     show: false,
@@ -224,6 +226,39 @@ export default function Home() {
           onLoginSuccess={auth.handleLoginSuccess}
         />
       )}
+
+      <Dialog open={showAnnouncement} onOpenChange={setShowAnnouncement}>
+        <DialogContent
+          className="max-w-xl border border-red-500/20 bg-[linear-gradient(180deg,rgba(18,18,18,0.98),rgba(10,10,10,0.98))] p-0 overflow-hidden"
+          onClick={() => setShowAnnouncement(false)}
+        >
+          <div className="border-b border-red-500/15 bg-red-500/8 px-6 py-3">
+            <span className="inline-flex items-center rounded-full border border-red-500/20 bg-red-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-red-400">
+              SISTEM DUYURUSU
+            </span>
+          </div>
+
+          <div className="px-6 py-6">
+            <DialogHeader className="space-y-3 text-left">
+              <DialogTitle className="text-2xl font-bold text-white">
+                Diji-Fetch engel tanımaz.
+              </DialogTitle>
+              <DialogDescription className="space-y-3 text-sm leading-6 text-zinc-300">
+                <span className="block">
+                  Dijidemi&apos;nin projeye karşı başlattığı engelleme girişimleri
+                  sonuçsuz kaldı. Diji-Fetch tüm bariyerleri aşarak çalışmaya
+                  devam ediyor.
+                </span>
+                <span className="block">
+                  Sistem şu anda eskisine göre biraz daha yavaş hissedilebilir;
+                  ancak bütün temel akışlar aktif ve her zamanki gibi hizmet
+                  veriyor.
+                </span>
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Header */}
       <header
@@ -900,7 +935,11 @@ export default function Home() {
                   </div>
                   <div className="video-list">
                     {testRunner.videos.map((v, index) => (
-                      <div key={v.q} className="video-item" id={`video-${v.q}`}>
+                      <div
+                        key={`${testRunner.selectedTest?.id || "test"}-${v.q}`}
+                        className="video-item"
+                        id={`video-${v.q}`}
+                      >
                         <div className="video-title flex justify-between items-center">
                           <span>Soru {v.q}</span>
                           <Button

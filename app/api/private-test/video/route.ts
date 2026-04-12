@@ -3,9 +3,13 @@ import {
     requireAuth,
     getClientIp,
 } from '@/lib/auth';
-import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
 import { verifyPrivateTestApiRequest } from '@/lib/private-test/device-gate';
 import { RateLimits } from '@/lib/rate-limit';
+import {
+    extractVideoUrlFromPayload,
+    readBufferedUpstreamPayload,
+    requestUpstreamApi,
+} from '@/lib/upstreamApi';
 
 export const maxDuration = 25;
 
@@ -41,26 +45,14 @@ export async function GET(request: NextRequest) {
     const soruId = parseNumericParam(searchParams.get('soruId'), 'soruId');
     if (soruId instanceof NextResponse) return soruId;
 
-    const url = 'https://www.dijidemi.com/Ogrenci2020/Video?___layout';
-    const body = new URLSearchParams({
-        tur: '2',
-        sinavId: '0',
-        sinavTuru: '2',
-        testId,
-        soruId,
-    }).toString();
-
     try {
-        const response = await requestDijidemiUpstream({
-            request,
-            userId: auth.userId,
-            url,
+        const response = await requestUpstreamApi({
+            path: '/api/video',
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            json: {
+                testId: Number(testId),
+                soruId: Number(soruId),
             },
-            body,
-            referrer: 'https://www.dijidemi.com/Ogrenci2020',
         });
         if (response instanceof NextResponse) return response;
 
@@ -68,21 +60,8 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: `Upstream error: ${response.status}` }, { status: response.status });
         }
 
-        const html = await response.text();
-        let videoUrl: string | null = null;
-
-        const videoSrcMatch = html.match(/<video[^>]*src="([^"]+)"/i);
-        if (videoSrcMatch) videoUrl = videoSrcMatch[1];
-
-        if (!videoUrl) {
-            const sourceSrcMatch = html.match(/<source[^>]*src="([^"]+)"/i);
-            if (sourceSrcMatch) videoUrl = sourceSrcMatch[1];
-        }
-
-        if (!videoUrl) {
-            const mp4Match = html.match(/"([^"]+\.mp4)"/);
-            if (mp4Match) videoUrl = mp4Match[1];
-        }
+        const payload = readBufferedUpstreamPayload(response);
+        const videoUrl = extractVideoUrlFromPayload(payload);
 
         if (videoUrl) {
             return NextResponse.json({
