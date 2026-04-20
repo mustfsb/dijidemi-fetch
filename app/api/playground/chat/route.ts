@@ -6,7 +6,7 @@ import {
     requireAuth,
     getClientIp,
 } from '@/lib/auth';
-import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
+import { requestUpstreamApi, readBufferedUpstreamPayload } from '@/lib/upstreamApi';
 import { RateLimits } from '@/lib/rate-limit';
 
 // List of available API keys for rotation
@@ -137,25 +137,33 @@ export async function POST(request: NextRequest) {
                 const questionNumber = parts[1];
 
                 const targetUrl = `https://www.dijidemi.com/Ogrenci/KitapTestDetay?kitapId=${q.bookId}&___layout`;
-                const pageResponse = await requestDijidemiUpstream({
-                    request,
-                    userId: auth.userId,
-                    url: targetUrl,
+                const proxyResp = await requestUpstreamApi({
+                    path: '/api/proxy',
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                        'X-Requested-With': 'XMLHttpRequest',
-                        'Accept': 'text/html, */*; q=0.01',
+                    json: {
+                        url: targetUrl,
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'Accept': 'text/html, */*; q=0.01',
+                        },
+                        body: new URLSearchParams({ id: testId }).toString(),
                     },
-                    body: new URLSearchParams({ id: testId }).toString(),
-                    referrer: 'https://www.dijidemi.com/Ogrenci',
                 });
-                if (pageResponse instanceof NextResponse) {
-                    return pageResponse;
+                if (proxyResp instanceof NextResponse) {
+                    return proxyResp;
                 }
 
-                if (pageResponse.ok) {
-                    const html = await pageResponse.text();
+                if (proxyResp.ok) {
+                    const proxyPayload = readBufferedUpstreamPayload(proxyResp) as {
+                        status: number;
+                        body: string;
+                        is_base64: boolean;
+                    } | null;
+                    const html = (proxyPayload && !proxyPayload.is_base64 && proxyPayload.status === 200)
+                        ? proxyPayload.body
+                        : '';
                     const $ = cheerio.load(html);
                     const questionEl = $(`.rowSoru[data-soruno="${questionNumber}"]`);
                     const scrapedImageUrl = questionEl.attr('data-soruimg');

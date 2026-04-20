@@ -4,7 +4,7 @@ import {
     requireAuth,
     getClientIp,
 } from '@/lib/auth';
-import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
+import { requestUpstreamApi, readBufferedUpstreamPayload } from '@/lib/upstreamApi';
 import { RateLimits } from '@/lib/rate-limit';
 
 const NUMERIC_ID_PATTERN = /^\d+$/;
@@ -22,11 +22,9 @@ function parseNumericId(value: unknown, field: string, maxLength: number): strin
 
 export async function POST(request: NextRequest) {
     try {
-        // Auth check
         const auth = await requireAuth(request);
         if (auth instanceof NextResponse) return auth;
 
-        // Rate limit
         const ip = getClientIp(request);
         if (!(await RateLimits.GENERAL(ip, auth.userId))) {
             return NextResponse.json({ error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
@@ -45,32 +43,40 @@ export async function POST(request: NextRequest) {
         const questionNumber = parseNumericId(body.questionNumber, 'questionNumber', 16);
         if (questionNumber instanceof NextResponse) return questionNumber;
 
-        const targetUrl = new URL('https://www.dijidemi.com/Ogrenci/KitapTestDetay');
-        targetUrl.search = new URLSearchParams({
-            kitapId: bookId,
-            ___layout: '',
-        }).toString();
+        const targetUrl = `https://www.dijidemi.com/Ogrenci/KitapTestDetay?kitapId=${bookId}&___layout`;
 
-        const pageResponse = await requestDijidemiUpstream({
-            request,
-            userId: auth.userId,
-            url: targetUrl.toString(),
+        const proxyResponse = await requestUpstreamApi({
+            path: '/api/proxy',
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                'X-Requested-With': 'XMLHttpRequest',
-                'Accept': 'text/html, */*; q=0.01',
+            json: {
+                url: targetUrl,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'text/html, */*; q=0.01',
+                },
+                body: `id=${testId}`,
             },
-            body: new URLSearchParams({ id: testId }).toString(),
-            referrer: 'https://www.dijidemi.com/Ogrenci',
         });
-        if (pageResponse instanceof NextResponse) return pageResponse;
 
-        if (!pageResponse.ok) {
+        if (proxyResponse instanceof NextResponse) return proxyResponse;
+
+        if (!proxyResponse.ok) {
             return NextResponse.json({ error: 'Sayfa yüklenemedi' }, { status: 502 });
         }
 
-        const html = await pageResponse.text();
+        const proxyPayload = readBufferedUpstreamPayload(proxyResponse) as {
+            status: number;
+            body: string;
+            is_base64: boolean;
+        } | null;
+
+        if (!proxyPayload || typeof proxyPayload !== 'object' || proxyPayload.status !== 200 || proxyPayload.is_base64) {
+            return NextResponse.json({ error: 'Sayfa yüklenemedi' }, { status: 502 });
+        }
+
+        const html = proxyPayload.body;
         const $ = cheerio.load(html);
         const questionEl = $(`.rowSoru[data-soruno="${questionNumber}"]`);
         let imageUrl = questionEl.attr('data-soruimg');
@@ -82,6 +88,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true, imageUrl });
 
     } catch (error) {
+        console.error('resolve-image error:', error instanceof Error ? error.message : error);
         return NextResponse.json({ error: 'Hata oluştu' }, { status: 500 });
     }
 }

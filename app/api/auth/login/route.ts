@@ -112,7 +112,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<LoginApiR
         return response;
 
     } catch (error) {
-        console.error('Login Error:', error instanceof Error ? error.message.substring(0, 100) : 'Unknown');
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? (error.stack ?? '') : '';
+        console.error('Login Error:', errorMsg.substring(0, 500));
+        if (errorStack) console.error('Login Stack:', errorStack.substring(0, 1000));
         return NextResponse.json({ error: 'Giriş sırasında bir hata oluştu.' }, { status: 500 });
     }
 }
