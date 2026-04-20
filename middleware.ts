@@ -24,7 +24,7 @@ function buildContentSecurityPolicy(_nonce: string): string {
         `img-src 'self' blob: data: https://*.dijidemi.com https://yayin.etapyayinlari.com https://*.supabase.co https://mofugpfhwbgcunkfkrhc.supabase.co`,
         `media-src 'self' https://video.yayincilik.net blob:`,
         `font-src 'self' data: https://fonts.gstatic.com`,
-        `connect-src 'self' https://generativelanguage.googleapis.com https://*.supabase.co https://mofugpfhwbgcunkfkrhc.supabase.co`,
+        `connect-src 'self' https://generativelanguage.googleapis.com https://*.supabase.co https://mofugpfhwbgcunkfkrhc.supabase.co https://diji-fetch.duckdns.org`,
         `object-src 'none'`,
         `base-uri 'self'`,
         `form-action 'self'`,
@@ -74,6 +74,10 @@ export async function middleware(request: NextRequest) {
 
     // 2. API Koruması ve CSRF Kontrolü
     if (pathname.startsWith('/api/')) {
+        response.headers.set('Cache-Control', 'no-store, max-age=0');
+        response.headers.set('Pragma', 'no-cache');
+        response.headers.set('Vary', 'Origin, Cookie');
+
         const method = request.method.toUpperCase();
         if (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE') {
             const lengthHeader = request.headers.get('content-length');
@@ -96,6 +100,7 @@ export async function middleware(request: NextRequest) {
             'https://www.dijidemi.com',
             'https://dijidemi.com',
             'https://diji-fetch.netlify.app',
+            'https://diji-fetch.vercel.app',
         ]);
 
         // In development, allow any localhost/127.0.0.1 port

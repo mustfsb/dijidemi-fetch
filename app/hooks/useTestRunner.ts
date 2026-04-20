@@ -1,7 +1,14 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { Test, TestData, Video, Assignment, AssignmentContext, UserAnswers, TestScoreData } from '@/types';
 import type { WeeklySchedule } from '@/types/program';
 import { authFetch } from '@/lib/tokenManager';
+
+// Direct upstream URL — set NEXT_PUBLIC_UPSTREAM_API_BASE_URL in Vercel env vars
+const UPSTREAM_BASE =
+    process.env.NEXT_PUBLIC_UPSTREAM_API_BASE_URL?.replace(/\/$/, '') ||
+    'https://diji-fetch.duckdns.org';
+const UPSTREAM_TOKEN =
+    process.env.NEXT_PUBLIC_UPSTREAM_API_TOKEN || 'aBcD';
 
 function sanitizeAnswerKey(value: unknown): string {
     if (typeof value !== 'string') return '';
@@ -51,113 +58,87 @@ export function useTestRunner(
     const [isSaving, setIsSaving] = useState<boolean>(false);
     const [testScore, setTestScore] = useState<TestScoreData | null>(null);
     const [loadingScore, setLoadingScore] = useState<boolean>(false);
+    const activeLoadIdRef = useRef<number>(0);
 
     const loadTest = async (tId: string, context: AssignmentContext | null = null): Promise<void> => {
+        const loadId = activeLoadIdRef.current + 1;
+        activeLoadIdRef.current = loadId;
+        const isStaleLoad = (): boolean => activeLoadIdRef.current !== loadId;
+
         setLoading(true);
         setError(null);
         setData(null);
         setVideos([]);
         setUserAnswers({});
-        setVideoStatus('Hazırlanıyor...');
+        setVideoStatus(null);
         setAssignmentContext(context);
         setTestScore(null);
 
-        // Log "Test Viewed" event
-        const userId = localStorage.getItem('user_uuid');
-        if (userId) {
-            authFetch('/api/log/create', {
-                method: 'POST',
-                body: JSON.stringify({
-                    user_id: userId,
-                    event_type: 'TEST_VIEWED',
-                    target_id: tId
-                })
-            }).catch(console.error);
-        }
-
-        // Fetch test score
-        setLoadingScore(true);
-        authFetch(`/api/student/test-answers?testId=${tId}`)
-            .then(r => r.json())
-            .then((scoreData: TestScoreData) => {
-                if (scoreData.success) setTestScore(scoreData);
-            })
-            .catch(err => console.error(err))
-            .finally(() => setLoadingScore(false));
-
         try {
-            const res = await authFetch(`/api/proxy?testId=${tId}`);
-            if (!res.ok) throw new Error('Test verisi alınamadı');
+            // Single direct request: GET http://194.62.55.93:8000/api/test?testId=<id>
+            const res = await fetch(
+                `${UPSTREAM_BASE}/api/test?testId=${encodeURIComponent(tId)}`,
+                { headers: { Authorization: `Bearer ${UPSTREAM_TOKEN}` } }
+            );
+            if (!res.ok) throw new Error(`Upstream ${res.status}`);
             const json: TestData = await res.json();
+            if (isStaleLoad()) return;
+
             const answerKey = resolveAnswerKey(json as Record<string, unknown>);
-            const normalizedData: TestData = {
+            const questionCount = (json as any).SoruSayisi || answerKey.length || 40;
+            setData({
                 ...json,
                 CevapAnahtari: answerKey || '',
-                SoruSayisi: (json as any).SoruSayisi || answerKey.length || 40,
-            };
-            setData(normalizedData);
+                SoruSayisi: questionCount,
+            });
 
             if (!answerKey) {
-                showToast('Bu testte cevap anahtarı bulunamadı. Sorular yüklenemedi.', 'error');
+                showToast('Bu testte cevap anahtarı bulunamadı.', 'error');
             }
 
-            const count = normalizedData.SoruSayisi || 40;
-            setVideoStatus(`Video çözümler yükleniyor...`);
-            try {
-                const videosRes = await authFetch(
-                    `/api/videos?testId=${encodeURIComponent(tId)}&count=${count}`,
-                    { headers: { 'Accept': 'text/event-stream' } }
-                );
-
-                if (!videosRes.ok || !videosRes.body) {
-                    setVideoStatus('Video çözümü yüklenemedi');
-                } else {
-                    const reader = videosRes.body.getReader();
-                    const decoder = new TextDecoder();
-                    let buffer = '';
-                    let loaded = 0;
-
-                    outer: while (true) {
-                        const { done, value } = await reader.read();
-                        if (done) break;
-
-                        buffer += decoder.decode(value, { stream: true });
-                        const lines = buffer.split('\n');
-                        buffer = lines.pop() ?? '';
-
-                        for (const line of lines) {
-                            if (!line.startsWith('data: ')) continue;
-                            try {
-                                const event = JSON.parse(line.slice(6));
-                                if (event.done) {
-                                    setVideoStatus(event.found > 0 ? 'Tamamlandı' : 'Video çözümü bulunamadı');
-                                    break outer;
-                                }
-                                if (event.error) {
-                                    setVideoStatus('Video çözümü yüklenemedi');
-                                    break outer;
-                                }
-                                if (event.q && event.url) {
-                                    loaded++;
-                                    setVideos(prev =>
-                                        [...prev, { q: event.q, url: event.url }]
-                                            .sort((a, b) => a.q - b.q)
-                                    );
-                                    setVideoStatus(`Video çözümler yükleniyor (${loaded}/${count})...`);
-                                }
-                            } catch { /* malformed event, skip */ }
-                        }
+            // Load videos directly from upstream (browser-side, same as test data)
+            if (!isStaleLoad()) {
+                setVideoStatus('Videolar yükleniyor...');
+                (async () => {
+                    const questions = Array.from({ length: questionCount }, (_, i) => i + 1);
+                    let found = 0;
+                    const BATCH = 8;
+                    for (let i = 0; i < questions.length; i += BATCH) {
+                        if (isStaleLoad()) return;
+                        await Promise.all(
+                            questions.slice(i, i + BATCH).map(async (soruId) => {
+                                try {
+                                    const res = await fetch(`${UPSTREAM_BASE}/api/video`, {
+                                        method: 'POST',
+                                        headers: {
+                                            'Authorization': `Bearer ${UPSTREAM_TOKEN}`,
+                                            'Content-Type': 'application/json',
+                                        },
+                                        body: JSON.stringify({ testId: Number(tId), soruId }),
+                                    });
+                                    if (!res.ok) return;
+                                    const d = await res.json();
+                                    if (d.videoUrl && !isStaleLoad()) {
+                                        found++;
+                                        setVideos(prev => [...prev, { q: soruId, url: d.videoUrl }]);
+                                    }
+                                } catch { /* video yok, atla */ }
+                            })
+                        );
                     }
-                }
-            } catch {
-                setVideoStatus('Video çözümü yüklenemedi');
+                    if (!isStaleLoad()) {
+                        setVideoStatus(found > 0 ? null : 'Video bulunamadı.');
+                    }
+                })();
             }
-
         } catch (e) {
-            setError(e instanceof Error ? e.message : 'Bilinmeyen hata');
-            setVideoStatus('Hata');
+            if (!isStaleLoad()) {
+                setError(e instanceof Error ? e.message : 'Bilinmeyen hata');
+            }
         } finally {
-            setLoading(false);
+            if (!isStaleLoad()) {
+                setLoading(false);
+            }
         }
     };
 
@@ -174,28 +155,37 @@ export function useTestRunner(
                 return true;
             }
 
-            // Normal assignment flow
-            const res = await authFetch('/api/student/assignment-test', {
+            // Normal assignment flow — browser-direct (same pattern as homework list)
+            const proxyRes = await fetch(`${UPSTREAM_BASE}/api/proxy`, {
                 method: 'POST',
-                body: JSON.stringify({ odevId: asgn.id })
+                headers: {
+                    'Authorization': `Bearer ${UPSTREAM_TOKEN}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    url: `https://www.dijidemi.com/Ogrenci/Odev?id=${encodeURIComponent(asgn.id)}`,
+                    method: 'GET',
+                }),
             });
+            if (!proxyRes.ok) throw new Error('Ödev sayfası alınamadı');
+            const proxyData = await proxyRes.json();
+            const html = typeof proxyData.body === 'string' ? proxyData.body : '';
 
-            const data = await res.json();
-            if (!data.success || !data.testId) throw new Error(data.error || 'Test ID alınamadı');
-
-            // Log "Assignment Opened" event
-            const userId = localStorage.getItem('user_uuid');
-            if (userId) {
-                authFetch('/api/log/create', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        user_id: userId,
-                        event_type: 'ASSIGNMENT_OPENED',
-                        target_id: asgn.id,
-                        details: { title: asgn.title }
-                    })
-                }).catch(console.error);
+            const testIdPatterns = [
+                /name=["']TestId["'][^>]*value=["'](\d+)["']/i,
+                /data-testid=["'](\d+)["']/i,
+                /TestId['":\s=]+['"]?(\d+)['"]?/i,
+                /testId['":\s=]+['"]?(\d+)['"]?/i,
+                /id=["']TestId["'][^>]*value=["'](\d+)["']/i,
+                /value=["'](\d+)["'][^>]*(?:name|id)=["']TestId["']/i,
+            ];
+            let testId: string | null = null;
+            for (const pattern of testIdPatterns) {
+                const m = html.match(pattern);
+                if (m?.[1]) { testId = m[1]; break; }
             }
+            if (!testId) throw new Error('TestId bulunamadı');
+            const data = { success: true, testId };
 
             const newTest = { id: data.testId, name: asgn.title };
             setSelectedTest(newTest);
@@ -225,19 +215,6 @@ export function useTestRunner(
                 })
             });
             if (!res.ok) throw new Error('Hata');
-
-            // Log Event
-            const userId = localStorage.getItem('user_uuid');
-            if (userId) {
-                authFetch('/api/log/create', {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        user_id: userId,
-                        event_type: 'TEST_SAVED',
-                        details: { testId: selectedTest.id, questionCount: data?.SoruSayisi }
-                    })
-                }).catch(console.error);
-            }
 
             showToast('✅ Cevaplar kaydedildi!', 'success');
 

@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-    requireAuth,
     getClientIp,
 } from '@/lib/auth';
-import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
 import { RateLimits } from '@/lib/rate-limit';
+import {
+    readBufferedUpstreamPayload,
+    requestUpstreamApi,
+    UPSTREAM_API_DEFAULTS,
+} from '@/lib/upstreamApi';
 
 interface TestAnswersResponse {
     success: boolean;
@@ -34,14 +37,12 @@ function parseNumericParam(value: string | null, field: string): string | NextRe
     return normalized;
 }
 
-export async function GET(request: NextRequest): Promise<NextResponse<TestAnswersResponse>> {
-    // Auth check
-    const auth = await requireAuth(request);
-    if (auth instanceof NextResponse) return auth as NextResponse<TestAnswersResponse>;
+export const maxDuration = 25;
 
-    // Rate limit
+export async function GET(request: NextRequest): Promise<NextResponse<TestAnswersResponse>> {
     const ip = getClientIp(request);
-    if (!(await RateLimits.GENERAL(ip, auth.userId))) {
+    console.log(`[test-answers] GET from ip=${ip}`);
+    if (!(await RateLimits.GENERAL(ip))) {
         return NextResponse.json({ success: false, error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
     }
 
@@ -52,40 +53,35 @@ export async function GET(request: NextRequest): Promise<NextResponse<TestAnswer
     if (turID instanceof NextResponse) return turID;
 
     try {
-        // Build URL with timestamp
-        const timestamp = Date.now().toString();
-        const url = new URL('https://www.dijidemi.com/Ogrenci2020/GetOgrenciTestCevaplar');
-        url.search = new URLSearchParams({
-            testId,
-            turID,
-            _: timestamp,
-        }).toString();
-
-        const response = await requestDijidemiUpstream({
-            request,
-            userId: auth.userId,
-            url: url.toString(),
+        const response = await requestUpstreamApi({
+            path: '/api/test-answers',
             method: 'GET',
-            headers: {
-                'Accept': 'application/json, text/javascript, */*; q=0.01',
-                'X-Requested-With': 'XMLHttpRequest',
+            query: {
+                testId,
+                turID: turID || UPSTREAM_API_DEFAULTS.turID,
             },
-            additionalCookies: {
-                kullaniciId: '0',
-                soruCevap: JSON.stringify({ 0: {} }),
-            },
-            referrer: 'https://www.dijidemi.com/Ogrenci2020',
         });
-        if (response instanceof NextResponse) return response as NextResponse<TestAnswersResponse>;
 
-        if (!response.ok) {
-            return NextResponse.json({
-                success: false,
-                error: `API yanıt hatası: ${response.status}`
-            }, { status: response.status });
+        // Upstream unreachable or transport error — degrade gracefully
+        if (response instanceof NextResponse) {
+            console.warn(`[test-answers] upstream transport error for testId=${testId}`);
+            return NextResponse.json({ success: true, hasAnswers: false });
         }
 
-        const data = await response.json<DijidemiTestAnswersPayload>();
+        if (!response.ok) {
+            console.warn(`[test-answers] upstream HTTP ${response.status} for testId=${testId}, body snippet: ${response.body.slice(0, 200)}`);
+            return NextResponse.json({ success: true, hasAnswers: false });
+        }
+
+        const payload = readBufferedUpstreamPayload(response);
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+            return NextResponse.json({
+                success: false,
+                error: 'Beklenmeyen API yanıtı'
+            }, { status: 502 });
+        }
+
+        const data = payload as DijidemiTestAnswersPayload;
 
         if (!data.Success) {
             return NextResponse.json({

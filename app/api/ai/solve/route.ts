@@ -5,7 +5,7 @@ import {
     requireAuth,
     getClientIp,
 } from '@/lib/auth';
-import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
+import { requestUpstreamApi, readBufferedUpstreamPayload } from '@/lib/upstreamApi';
 import { RateLimits } from '@/lib/rate-limit';
 
 // List of available API keys for rotation
@@ -14,13 +14,12 @@ const API_KEYS = [
     process.env.GEMINI_SECOND_API_KEY,
     process.env.GEMINI_THIRD_API_KEY,
     process.env.GEMINI_FOURTH_API_KEY,
-    process.env.GEMINI_API_KEY // Fallback to original if exists
+    process.env.GEMINI_API_KEY
 ].filter(Boolean) as string[];
 
-// Helper to get model instance for a specific key
 const getModel = (apiKey: string) => {
     const genAI = new GoogleGenerativeAI(apiKey);
-    return genAI.getGenerativeModel({ 
+    return genAI.getGenerativeModel({
         model: 'gemini-3-flash-preview',
         generationConfig: {
             maxOutputTokens: 2048,
@@ -37,11 +36,9 @@ const getModel = (apiKey: string) => {
 
 export async function POST(request: NextRequest) {
     try {
-        // Auth check
         const auth = await requireAuth(request);
         if (auth instanceof NextResponse) return auth;
 
-        // Rate limit (AI is costly)
         const ip = getClientIp(request);
         if (!(await RateLimits.AI(ip, auth.userId))) {
             return NextResponse.json({ error: 'Çok fazla AI isteği. Lütfen bekleyin.' }, { status: 429 });
@@ -58,14 +55,13 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'API anahtarları yapılandırılmamış.' }, { status: 500 });
         }
 
-        // --- CHAT MODE (Follow-up questions) ---
+        // --- CHAT MODE ---
         if (body.mode === 'chat') {
             const history = Array.isArray(body.history) ? body.history : [];
             if (history.length === 0) {
                 return NextResponse.json({ error: 'Chat geçmişi boş olamaz.' }, { status: 400 });
             }
 
-            // Ensure history starts with a USER role (Gemini requirement)
             let safeHistory = history;
             if (history.length > 0 && history[0].role === 'model') {
                 safeHistory = [
@@ -74,7 +70,6 @@ export async function POST(request: NextRequest) {
                 ];
             }
 
-            // Retry logic for Chat
             let lastError;
             for (const [index, apiKey] of API_KEYS.entries()) {
                 try {
@@ -95,14 +90,13 @@ export async function POST(request: NextRequest) {
                     console.error(`[API] Key failed (Chat): Key #${index + 1} Error: ${error.message?.substring(0, 50)}`);
                     lastError = error;
                     if (error.message?.includes('429') || error.status === 429) {
-                        continue; // Try next key
+                        continue;
                     }
-                    throw error; // If not 429, throw immediately
+                    throw error;
                 }
             }
             throw lastError || new Error('All API keys failed');
         }
-
 
         // --- INITIAL SOLVE MODE ---
         const { bookId, testId, questionNumber } = body;
@@ -120,58 +114,63 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ error: 'Parametreler çok uzun' }, { status: 400 });
         }
 
-        // 1. Fetch Test Page from Dijidemi to find Image URL
         const targetUrl = `https://www.dijidemi.com/Ogrenci/KitapTestDetay?kitapId=${bookId}&___layout`;
 
         if (process.env.NODE_ENV === 'development') {
             console.log(`[API] Fetching test page for TestID: ${testId}, BookID: ${bookId}`);
         }
 
-        const pageResponse = await requestDijidemiUpstream({
-            request,
-            userId: auth.userId,
-            url: targetUrl,
+        const proxyResponse = await requestUpstreamApi({
+            path: '/api/proxy',
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                'X-Requested-With': 'XMLHttpRequest',
-                'Accept': 'text/html, */*; q=0.01',
-                'Accept-Language': 'en-US,en;q=0.9',
+            json: {
+                url: targetUrl,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'text/html, */*; q=0.01',
+                },
+                body: `id=${testId}`,
             },
-            body: `id=${testId}`,
-            referrer: 'https://www.dijidemi.com/Ogrenci',
         });
-        if (pageResponse instanceof NextResponse) return pageResponse;
 
-        if (!pageResponse.ok) {
-            console.error(`[API] Page fetch failed: ${pageResponse.status}`);
+        if (proxyResponse instanceof NextResponse) return proxyResponse;
+
+        if (!proxyResponse.ok) {
+            console.error(`[API] Proxy fetch failed: ${proxyResponse.status}`);
             return NextResponse.json({ error: 'Dijidemi sayfasına erişilemedi.' }, { status: 502 });
         }
 
-        const html = await pageResponse.text();
+        const proxyPayload = readBufferedUpstreamPayload(proxyResponse) as {
+            status: number;
+            body: string;
+            is_base64: boolean;
+        } | null;
 
+        if (!proxyPayload || typeof proxyPayload !== 'object' || proxyPayload.status !== 200 || proxyPayload.is_base64) {
+            return NextResponse.json({ error: 'Dijidemi sayfasına erişilemedi.' }, { status: 502 });
+        }
+
+        const html = proxyPayload.body;
         const $ = cheerio.load(html);
 
-        // Find the specific question by data-soruno
         const questionEl = $(`.rowSoru[data-soruno="${questionNumber}"]`);
         let imageUrl = questionEl.attr('data-soruimg');
 
         if (!imageUrl) {
             console.error(`[API] Image URL not found for Q${questionNumber}`);
-
             return NextResponse.json({
                 error: 'Soru resmi bulunamadı. HTML yapısı değişmiş veya oturum düşmüş olabilir.'
             }, { status: 404 });
         }
 
-        // Ensure full URL
         if (imageUrl.startsWith('/')) {
             imageUrl = `https://yayin.etapyayinlari.com${imageUrl}`;
         }
 
-        console.log(`[API] 3. Found image for Q${questionNumber}. Fetching...`);
+        console.log(`[API] Found image for Q${questionNumber}. Fetching...`);
 
-        // 2. Fetch the Image Data
         const imageResponse = await fetch(imageUrl);
         if (!imageResponse.ok) {
             console.error(`[API] Image fetch failed: ${imageResponse.status}`);
@@ -180,15 +179,13 @@ export async function POST(request: NextRequest) {
         const imageBuffer = await imageResponse.arrayBuffer();
         const imageBase64 = Buffer.from(imageBuffer).toString('base64');
 
-
-        // 3. Send to Gemini with Rotational Logic
-        const prompt = `Bu resimdeki soruyu çöz. 
+        const prompt = `Bu resimdeki soruyu çöz.
         1. Önce sorunun metnini veya verilerini analiz et.
         2. Adım adım çözümü anlat.
         3. Cevabı net bir şekilde belirt.
         4. Samimi, eğitici bir öğretmen dili kullan.
         5. Matematik sorularında, formülleri ve ifadeleri MUTLAKA '$' (dolar) işareti içine alarak LaTeX formatında yaz.
-        - ÖNEMLİ: '$' işaretini 'escape' etme (ters slash kullanma). 
+        - ÖNEMLİ: '$' işaretini 'escape' etme (ters slash kullanma).
         - Örnek: $\\frac{1}{2}$, $x^2$, $\\sqrt{x}$
         - Paragraf blokları yapma, satır içi matematik kullan.`;
 
@@ -215,23 +212,17 @@ export async function POST(request: NextRequest) {
                 solutionText = response.text();
 
                 if (!solutionText || solutionText.trim().length === 0) {
-                    console.warn(`[Solve API] Empty response from Key #${index + 1}. Candidate was blocked or failed.`);
-                    continue; // Try next key
+                    console.warn(`[Solve API] Empty response from Key #${index + 1}.`);
+                    continue;
                 }
 
                 success = true;
                 console.log(`[API] Success with Key #${index + 1}`);
-                break; // Exit loop on success
+                break;
 
             } catch (error: any) {
-                    console.error(`[API] Key #${index + 1} failed: ${error.message?.substring(0, 50)}`);
-                    lastError = error;
-
-                // Restart logic if 429
-                if (error.message?.includes('429') || error.status === 429) {
-                    continue;
-                }
-                // If other error, maybe still try others? For safety let's continue for any error in production
+                console.error(`[API] Key #${index + 1} failed: ${error.message?.substring(0, 50)}`);
+                lastError = error;
                 continue;
             }
         }

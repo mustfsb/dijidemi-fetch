@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDijidemiSessionHealth, requireAuth, getClientIp } from '@/lib/auth';
+import { requireAuth, getClientIp } from '@/lib/auth';
 import { RateLimits } from '@/lib/rate-limit';
+import { requestUpstreamApi } from '@/lib/upstreamApi';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,8 +17,18 @@ export async function GET(request: NextRequest) {
     }
 
     try {
+        const response = await requestUpstreamApi({
+            path: '/health',
+            method: 'GET',
+            includeAuthorization: false,
+        });
+
+        if (response instanceof NextResponse) {
+            return NextResponse.json({ status: 'error' });
+        }
+
         return NextResponse.json({
-            status: await getDijidemiSessionHealth(request, auth.userId),
+            status: response.ok ? 'valid' : 'error',
         });
     } catch (e) {
         console.error('Status check error:', e);

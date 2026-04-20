@@ -4,13 +4,38 @@ import {
     requireAuth,
     getClientIp,
 } from '@/lib/auth';
-import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
 import { RateLimits } from '@/lib/rate-limit';
+import {
+    readBufferedUpstreamPayload,
+    requestUpstreamApi,
+    UPSTREAM_API_DEFAULTS,
+} from '@/lib/upstreamApi';
 
 interface SaveAnswerResponse {
     success?: boolean;
     raw?: string;
     error?: string;
+}
+
+const NUMERIC_ID_PATTERN = /^\d+$/;
+const ANSWER_CHAR_PATTERN = /^[A-EO ]$/;
+
+function normalizeNumericQueryValue(value: unknown, field: string): string | NextResponse<SaveAnswerResponse> {
+    const normalized = String(value ?? '').trim();
+    if (!normalized || normalized.length > 64 || !NUMERIC_ID_PATTERN.test(normalized)) {
+        return NextResponse.json({ error: `Geçersiz ${field}` }, { status: 400 });
+    }
+    return normalized;
+}
+
+function normalizeAnswerChar(value: unknown): string {
+    if (typeof value !== 'string') {
+        return ' ';
+    }
+
+    const normalized = value.trim().toUpperCase();
+    const char = normalized ? normalized[0] : ' ';
+    return ANSWER_CHAR_PATTERN.test(char) ? char : ' ';
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse<SaveAnswerResponse>> {
@@ -31,7 +56,14 @@ export async function POST(request: NextRequest): Promise<NextResponse<SaveAnswe
         } catch {
             return NextResponse.json({ error: 'Geçersiz JSON gövdesi' }, { status: 400 });
         }
-        const { testId, answers, totalQuestions, dersId = 0, odevId = 0, turId = 2 } = body;
+        const {
+            testId,
+            answers,
+            totalQuestions,
+            dersId = Number(UPSTREAM_API_DEFAULTS.dersId),
+            odevId = Number(UPSTREAM_API_DEFAULTS.odevId),
+            turId = Number(UPSTREAM_API_DEFAULTS.turId),
+        } = body;
         if (!testId || typeof testId !== 'string' || testId.length > 64) {
             return NextResponse.json({ error: 'Geçersiz testId' }, { status: 400 });
         }
@@ -43,54 +75,31 @@ export async function POST(request: NextRequest): Promise<NextResponse<SaveAnswe
             return NextResponse.json({ error: 'Geçersiz totalQuestions' }, { status: 400 });
         }
 
+        const normalizedTestId = normalizeNumericQueryValue(testId, 'testId');
+        if (normalizedTestId instanceof NextResponse) return normalizedTestId;
+        const normalizedDersId = normalizeNumericQueryValue(dersId, 'dersId');
+        if (normalizedDersId instanceof NextResponse) return normalizedDersId;
+        const normalizedOdevId = normalizeNumericQueryValue(odevId, 'odevId');
+        if (normalizedOdevId instanceof NextResponse) return normalizedOdevId;
+        const normalizedTurId = normalizeNumericQueryValue(turId, 'turId');
+        if (normalizedTurId instanceof NextResponse) return normalizedTurId;
+
         // 1. Construct Answer String
         let answersString = "";
         for (let i = 1; i <= limit; i++) {
-            answersString += (answers[i] || " ");
+            answersString += normalizeAnswerChar(answers[i]);
         }
 
-        // 2. Construct soruCevap Cookie JSON
-        // Format: {"0":{"<testId>":{"0":{"1":"A"}}}}
-        const cookieAnswers: { [key: string]: string } = {};
-        Object.keys(answers).forEach(k => {
-            cookieAnswers[k] = answers[parseInt(k, 10)];
-        });
-
-        const soruCevapObj = {
-            "0": {
-                [testId]: {
-                    "0": cookieAnswers
-                }
-            }
-        };
-        const soruCevapJson = JSON.stringify(soruCevapObj);
-
-        // 3. Construct URL Params
-        const params = new URLSearchParams({
-            dersId: String(dersId) || '969',
-            odevId: String(odevId),
-            testId,
-            turId: String(turId),
-            cevaplar: answersString,
-            _: Date.now().toString()
-        });
-
-        const url = `https://www.dijidemi.com/Ogrenci2020/TestCevapKaydetV2?${params.toString()}`;
-
-        const response = await requestDijidemiUpstream({
-            request,
-            userId: auth.userId,
-            url,
+        const response = await requestUpstreamApi({
+            path: '/api/save-answers',
             method: 'GET',
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest',
-                'Content-Type': 'application/json; charset=UTF-8',
+            query: {
+                dersId: normalizedDersId,
+                odevId: normalizedOdevId,
+                testId: normalizedTestId,
+                turId: normalizedTurId,
+                cevaplar: answersString,
             },
-            additionalCookies: {
-                kullaniciId: '0',
-                soruCevap: soruCevapJson,
-            },
-            referrer: 'https://www.dijidemi.com/Ogrenci',
         });
         if (response instanceof NextResponse) return response;
 
@@ -98,8 +107,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<SaveAnswe
             return NextResponse.json({ error: 'Failed to save answers' }, { status: response.status });
         }
 
-        const text = await response.text();
-        return NextResponse.json({ success: true, raw: text });
+        const payload = readBufferedUpstreamPayload(response);
+        return NextResponse.json({
+            success: true,
+            raw: typeof payload === 'string' ? payload : JSON.stringify(payload),
+        });
 
     } catch (error) {
         console.error('Save Answer Error:', error instanceof Error ? error.message.substring(0, 100) : 'Unknown');

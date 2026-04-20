@@ -4,8 +4,12 @@ import {
     requireAuth,
     getClientIp,
 } from '@/lib/auth';
-import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
 import { RateLimits } from '@/lib/rate-limit';
+import {
+    extractVideoUrlFromPayload,
+    readBufferedUpstreamPayload,
+    requestUpstreamApi,
+} from '@/lib/upstreamApi';
 
 export const maxDuration = 25;
 
@@ -36,28 +40,14 @@ export async function GET(request: NextRequest) {
     const soruId = parseNumericParam(searchParams.get('soruId'), 'soruId');
     if (soruId instanceof NextResponse) return soruId;
 
-    const url = `https://www.dijidemi.com/Ogrenci2020/Video?___layout`;
-
-    // Body from user request: tur=2&sinavId=0&sinavTuru=2&testId=1120092&soruId=1
-    const body = new URLSearchParams({
-        tur: '2',
-        sinavId: '0',
-        sinavTuru: '2',
-        testId,
-        soruId,
-    }).toString();
-
     try {
-        const response = await requestDijidemiUpstream({
-            request,
-            userId: auth.userId,
-            url,
+        const response = await requestUpstreamApi({
+            path: '/api/video',
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+            json: {
+                testId: Number(testId),
+                soruId: Number(soruId),
             },
-            body,
-            referrer: 'https://www.dijidemi.com/Ogrenci2020',
         });
         if (response instanceof NextResponse) return response;
 
@@ -65,28 +55,13 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: `Upstream error: ${response.status}` }, { status: response.status });
         }
 
-        const html = await response.text();
-
-        // Extract video URL - Robust Regex
-        // Matches <video src="...">, <source src="...">, or known patterns
-        let videoUrl: string | null = null;
-
-        // Pattern 1: <video ... src="...">
-        const videoSrcMatch = html.match(/<video[^>]*src="([^"]+)"/i);
-        if (videoSrcMatch) videoUrl = videoSrcMatch[1];
-
-        // Pattern 2: <source src="..."> inside video
-        if (!videoUrl) {
-            const sourceSrcMatch = html.match(/<source[^>]*src="([^"]+)"/i);
-            if (sourceSrcMatch) videoUrl = sourceSrcMatch[1];
-        }
-
-        // Pattern 3: JSON embedded or other
-        if (!videoUrl) {
-            // Check for direct .mp4 links in quotes
-            const mp4Match = html.match(/"([^"]+\.mp4)"/);
-            if (mp4Match) videoUrl = mp4Match[1];
-        }
+        const payload = readBufferedUpstreamPayload(response);
+        const payloadRecord = (
+            payload
+            && typeof payload === 'object'
+            && !Array.isArray(payload)
+        ) ? payload as Record<string, unknown> : null;
+        const videoUrl = extractVideoUrlFromPayload(payload);
 
         if (videoUrl) {
             return NextResponse.json({
@@ -96,10 +71,13 @@ export async function GET(request: NextRequest) {
                 soruId
             });
         } else {
+            const message = typeof payloadRecord?.message === 'string'
+                ? payloadRecord.message
+                : 'Video not found';
+
             return NextResponse.json({
                 success: false,
-                message: 'Video not found',
-                // htmlSnippet: html.substring(0, 500) // DEBUG: Remove in prod if spammy
+                message,
             });
         }
 

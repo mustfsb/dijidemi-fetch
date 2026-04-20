@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-    requireAuth,
     getClientIp,
 } from '@/lib/auth';
-import { requestDijidemiUpstream } from '@/lib/dijidemi/upstream';
+import {
+    readBufferedUpstreamPayload,
+    requestUpstreamApi,
+} from '@/lib/upstreamApi';
 import { RateLimits } from '@/lib/rate-limit';
 
 export const maxDuration = 25;
@@ -19,53 +21,29 @@ function parseNumericParam(value: string | null, field: string): string | NextRe
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
-    // Auth check
-    const auth = await requireAuth(request);
-    if (auth instanceof NextResponse) return auth;
-
-    // Rate limit
     const ip = getClientIp(request);
-    if (!(await RateLimits.GENERAL(ip, auth.userId))) {
+    if (!(await RateLimits.GENERAL(ip))) {
         return NextResponse.json({ error: 'Çok fazla istek. Lütfen bekleyin.' }, { status: 429 });
     }
 
     const { searchParams } = new URL(request.url);
     const testId = parseNumericParam(searchParams.get('testId'), 'testId');
     if (testId instanceof NextResponse) return testId;
-    const programId = parseNumericParam(searchParams.get('programId') || '14308', 'programId');
-    if (programId instanceof NextResponse) return programId;
-    const testTur = parseNumericParam(searchParams.get('testTur') || '1', 'testTur');
-    if (testTur instanceof NextResponse) return testTur;
 
-    const baseUrl = 'https://www.dijidemi.com/MobilService/GetTestById';
-    const params = new URLSearchParams({
-        testId,
-        programId,
-        testTur,
+    // Direct passthrough: GET http://194.62.55.93:8000/api/test?testId=<id>
+    const response = await requestUpstreamApi({
+        path: '/api/test',
+        method: 'GET',
+        query: { testId },
     });
-    const url = `${baseUrl}?${params.toString()}`;
 
-    console.log(`Proxying request for testId: ${testId}`);
+    if (response instanceof NextResponse) return response;
 
-    try {
-        const response = await requestDijidemiUpstream({
-            request,
-            userId: auth.userId,
-            url,
-            method: 'GET',
-        });
-        if (response instanceof NextResponse) return response;
-
-        if (!response.ok) {
-            throw new Error(`Upstream API responded with ${response.status}`);
-        }
-
-        const data = await response.json();
-        return NextResponse.json(data);
-
-    } catch (error) {
-        console.error('Proxy Error:', error instanceof Error ? error.message.substring(0, 100) : 'Unknown');
-        return NextResponse.json({ error: 'Upstream request failed' }, { status: 500 });
+    if (!response.ok) {
+        console.error(`[proxy] upstream ${response.status} for testId=${testId}`);
+        return NextResponse.json({ error: `Upstream ${response.status}` }, { status: response.status });
     }
 
+    const data = readBufferedUpstreamPayload(response);
+    return NextResponse.json(data);
 }

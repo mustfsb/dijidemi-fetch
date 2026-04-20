@@ -319,9 +319,24 @@ function isValidIp(ip: string | null): ip is string {
  * Extract client IP from trusted proxy headers.
  */
 export function getClientIp(request: NextRequest): string {
-    const platformIp = request.headers.get('x-nf-client-connection-ip');
-    if (isValidIp(platformIp)) {
-        return platformIp.trim();
+    // Netlify
+    const netlifyIp = request.headers.get('x-nf-client-connection-ip');
+    if (isValidIp(netlifyIp)) {
+        return netlifyIp.trim();
+    }
+
+    // Vercel / standard proxy
+    const forwardedFor = request.headers.get('x-forwarded-for');
+    if (forwardedFor) {
+        const firstIp = forwardedFor.split(',')[0].trim();
+        if (isValidIp(firstIp)) {
+            return firstIp;
+        }
+    }
+
+    const realIp = request.headers.get('x-real-ip');
+    if (isValidIp(realIp)) {
+        return realIp.trim();
     }
 
     return 'unknown';
