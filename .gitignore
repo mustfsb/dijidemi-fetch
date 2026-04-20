@@ -7,3 +7,4 @@ node_modules/
 lib/cookie/cookies.json
 tsconfig.tsbuildinfo
 .DS_Store
+.vercel
